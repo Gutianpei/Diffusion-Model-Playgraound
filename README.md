@@ -9,6 +9,6 @@ Source git: [DiffusionClip](https://github.com/gwang-kim/DiffusionCLIP)
 ## File Modification
 * Delete parse_args_and_config and main functions of ``main.py``.
 
-* Edit ``utils.diffusion_utils denoising_step`` function.
+* Edit ``utils\diffusion_utils.py`` denoising_step function.
 
 * Change ``diffusionclip.py`` to ``ourddpm.py``.
