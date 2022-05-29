@@ -1,7 +1,9 @@
 # Diffusion-Model-Playgraound
 **THE GOAL: manipulate sigma times z during sampling step**
+
 Source git: [DiffusionClip](https://github.com/gwang-kim/DiffusionCLIP)
 
+## Colab Playground
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1D_-8jELFZDQN-53St-Juov_hE8MHm3o0#scrollTo=q0WAU_sCp3xf)
 
 ## File Modification
