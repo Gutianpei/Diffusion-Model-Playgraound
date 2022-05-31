@@ -11,6 +11,8 @@ Source git: [DiffusionClip](https://github.com/gwang-kim/DiffusionCLIP)
 
 * Edit ``utils\diffusion_utils.py`` *denoising_step* function.
   
-  * Create a new *add_var* parameter to manipulate **sigma times z**. If *add_var == False*, then no noise variance added during DDPM sampling step. *add_var == True* maintains the original DDPM sampling function.
+  * Create a new *add_var* parameter to manipulate **sigma times z**. 
+  * If *add_var == False*, then no noise variance added during DDPM sampling step. 
+  * *add_var == True* maintains the original DDPM sampling function.
 
 * Change ``diffusionclip.py`` to ``ourddpm.py``; edit all *denoising_step* function correspondingly in the file.
