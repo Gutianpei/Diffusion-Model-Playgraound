@@ -13,8 +13,7 @@ from models.ddpm.diffusion import DDPM
 from models.improved_ddpm.script_util import i_DDPM
 from utils.text_dic import SRC_TRG_TXT_DIC
 from utils.diffusion_utils import get_beta_schedule, denoising_step
-from losses import id_loss
-from losses.clip_loss import CLIPLoss
+
 from datasets.data_utils import get_dataset, get_dataloader
 from configs.paths_config import DATASET_PATHS, MODEL_PATHS, HYBRID_MODEL_PATHS, HYBRID_CONFIG
 from datasets.imagenet_dic import IMAGENET_DIC
