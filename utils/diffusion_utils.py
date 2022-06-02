@@ -31,7 +31,8 @@ def denoising_step(xt, t, t_next, *,
                    hybrid_config=None,
                    ratio=1.0,
                    out_x0_t=False,
-                   add_var= False
+                   add_var= False,
+                   add_var_on = None
                    ):
 
     # Compute noise and variance
@@ -98,7 +99,7 @@ def denoising_step(xt, t, t_next, *,
         mean = 1 / torch.sqrt(1.0 - bt) * (xt - weight * et)
 
         #add_var: variance sigma_t*z is added during the sampling process
-        if add_var :
+        if add_var and t.item() in add_var_on:
             noise = torch.randn_like(xt)
             mask = 1 - (t == 0).float()
             mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))
