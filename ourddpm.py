@@ -48,18 +48,13 @@ class OurDDPM(object):
         elif self.model_var_type == 'fixedsmall':
             self.logvar = np.log(np.maximum(posterior_variance, 1e-20))
 
-        if self.args.edit_attr is None:
-            self.src_txts = self.args.src_txts
-            self.trg_txts = self.args.trg_txts
-        else:
-            self.src_txts = SRC_TRG_TXT_DIC[self.args.edit_attr][0]
-            self.trg_txts = SRC_TRG_TXT_DIC[self.args.edit_attr][1]
 
         #newly added
         self.add_var = self.args.add_var
+        self.add_var_on = self.args.add_var_on
     
     
-    def generate_ddpm(self, sigma):
+    def generate_ddpm(self, xt, sigma):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -71,15 +66,13 @@ class OurDDPM(object):
 
         if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
             model_i = DDPM(self.config)
-            if model_path:
-                ckpt = torch.load(model_path)
-            else:
-                ckpt = torch.hub.load_state_dict_from_url(url, map_location=self.device)
+   
+            ckpt = torch.load(self.args.model_path)
             learn_sigma = False
         elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
             model_i = i_DDPM(self.config.data.dataset)
-            if model_path:
-                ckpt = torch.load(model_path)
+            if self.args.model_path:
+                ckpt = torch.load(self.args.model_path)
             else:
                 ckpt = torch.load(MODEL_PATHS[self.config.data.dataset])
             learn_sigma = True
@@ -90,60 +83,48 @@ class OurDDPM(object):
         model_i.to(self.device)
         model_i = torch.nn.DataParallel(model_i)
         model_i.eval()
-        print(f"{model_path} is loaded.")
+        print(f"{self.args.model_path} is loaded.")
 
         with torch.no_grad():
             # ----------- Generative Process -----------#
             print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
-                  f" Steps: {self.args.n_test_step}/{self.args.t_0}")
-            if self.args.n_test_step != 0:
-                seq_test = np.linspace(0, 1, self.args.n_test_step) * self.args.t_0
-                seq_test = [int(s) for s in list(seq_test)]
-                print('Uniform skip type')
-            else:
-                seq_test = list(range(self.args.t_0))
-                print('No skip')
+                  f" Steps: {self.args.n_step}")
+            
+            seq_test = np.linspace(0, 1, self.args.n_step) 
+            seq_test = [int(s) for s in list(seq_test)]
+            print('Uniform skip type')
+
             seq_test_next = [-1] + list(seq_test[:-1])
 
-            for it in range(self.args.n_iter):
-                if self.args.deterministic_inv:
-                    x = x_lat.clone()
-                else:
-                    e = torch.randn_like(x0)
-                    a = (1 - self.betas).cumprod(dim=0)
-                    x = x0 * a[self.args.t_0 - 1].sqrt() + e * (1.0 - a[self.args.t_0 - 1]).sqrt()
-                tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                           f'1_lat_ninv{self.args.n_inv_step}.png'))
 
-                with tqdm(total=len(seq_test), desc="Generative process {}".format(it)) as progress_bar:
-                    for i, j in zip(reversed(seq_test), reversed(seq_test_next)):
-                        t = (torch.ones(n) * i).to(self.device)
-                        t_next = (torch.ones(n) * j).to(self.device)
+            # e = torch.randn_like(x0)
+            # a = (1 - self.betas).cumprod(dim=0)
+            # x = x0 * a[self.args.t_0 - 1].sqrt() + e * (1.0 - a[self.args.t_0 - 1]).sqrt()
+            x = xt                                           
 
-                        x = denoising_step(x, t=t, t_next=t_next, models=models,
-                                           logvars=self.logvar,
-                                           sampling_type=self.args.sample_type,
-                                           b=self.betas,
-                                           eta=self.args.eta,
-                                           learn_sigma=learn_sigma,
-                                           ratio=self.args.model_ratio,
-                                           hybrid=self.args.hybrid_noise,
-                                           hybrid_config=HYBRID_CONFIG,
-                                           add_var = self.add_var)
+            with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
+                for i, j in zip(reversed(seq_test), reversed(seq_test_next)):
+                    t = (torch.ones(n) * i).to(self.device)
+                    t_next = (torch.ones(n) * j).to(self.device)
 
-                        # added intermediate step vis
-                        if (i - 99) % 100 == 0:
-                            tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                                       f'2_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_{i}_it{it}.png'))
-                        progress_bar.update(1)
+                    x = denoising_step(x, t=t, t_next=t_next, models=model_i,
+                                        logvars=self.logvar,
+                                        sampling_type=self.args.sample_type,
+                                        b=self.betas,
+                                        eta=self.args.eta,
+                                        learn_sigma=learn_sigma,
+                                        ratio=1,
+                                        hybrid=self.args.hybrid_noise,
+                                        hybrid_config=HYBRID_CONFIG,
+                                        add_var = self.add_var,
+                                        add_var_on = self.add_var_on)
 
-                x0 = x.clone()
-                if self.args.model_path:
-                    tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                               f"3_gen_t{self.args.t_0}_it{it}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_mrat{self.args.model_ratio}_{self.args.model_path.split('/')[-1].replace('.pth','')}.png"))
-                else:
-                    tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                           f'3_gen_t{self.args.t_0}_it{it}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_mrat{self.args.model_ratio}.png'))
+                    # added intermediate step vis
+                    if i % 50 == 0:
+                        tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+                                                                    f'ngen{self.args.n_step}_{i}.png'))
+                    progress_bar.update(1)
+
 
    
 
