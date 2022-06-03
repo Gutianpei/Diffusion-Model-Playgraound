@@ -126,8 +126,8 @@ class OurDDPM(object):
                         tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                                      f'ngen{self.args.n_step}_{i:03d}.png'))
                     progress_bar.update(1)
-            tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                                     f'ngen{self.args.n_step}_final.png'))
+            #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+            #                                                         f'ngen{self.args.n_step}_final.png'))
 
 
    
