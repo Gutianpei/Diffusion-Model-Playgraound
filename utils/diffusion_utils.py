@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import pdb
 
 
 def get_beta_schedule(*, beta_start, beta_end, num_diffusion_timesteps):
@@ -99,7 +100,8 @@ def denoising_step(xt, t, t_next, *,
         mean = 1 / torch.sqrt(1.0 - bt) * (xt - weight * et)
 
         #add_var: variance sigma_t*z is added during the sampling process
-        if add_var and t.item() in add_var_on:
+     #   pdb.set_trace()
+        if add_var and int(t.item()) in add_var_on:
             noise = torch.randn_like(xt)
             mask = 1 - (t == 0).float()
             mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))
