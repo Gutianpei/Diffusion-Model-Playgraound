@@ -8,6 +8,7 @@ from PIL import Image
 import torch
 from torch import nn
 import torchvision.utils as tvu
+import pdb
 
 from models.ddpm.diffusion import DDPM
 from models.improved_ddpm.script_util import i_DDPM
@@ -51,7 +52,7 @@ class OurDDPM(object):
 
         #newly added
         self.add_var = self.args.add_var
-        self.add_var_on = self.args.add_var_on
+       # self.add_var_on = self.args.add_var_on
     
     
     def generate_ddpm(self, xt, sigma):
@@ -90,7 +91,7 @@ class OurDDPM(object):
             print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
                   f" Steps: {self.args.n_step}")
             
-            seq_test = np.linspace(0, 1, self.args.n_step) 
+            seq_test = np.linspace(0, 1, self.args.n_step) * self.args.n_step
             seq_test = [int(s) for s in list(seq_test)]
             print('Uniform skip type')
 
@@ -117,13 +118,16 @@ class OurDDPM(object):
                                         hybrid=self.args.hybrid_noise,
                                         hybrid_config=HYBRID_CONFIG,
                                         add_var = self.add_var,
-                                        add_var_on = self.add_var_on)
+                                        add_var_on = sigma)
 
                     # added intermediate step vis
-                    if i % 50 == 0:
+                    if i % 100 == 0:
+                    #pdb.set_trace()
                         tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                                    f'ngen{self.args.n_step}_{i}.png'))
+                                                                     f'ngen{self.args.n_step}_{i:03d}.png'))
                     progress_bar.update(1)
+            tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+                                                                     f'ngen{self.args.n_step}_final.png'))
 
 
    
