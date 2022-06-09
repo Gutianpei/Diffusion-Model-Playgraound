@@ -59,7 +59,7 @@ class OurDDPM(object):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
-        
+        trajs = []
 
         # ----------- Models -----------#
  
@@ -122,12 +122,12 @@ class OurDDPM(object):
 
                     # added intermediate step vis
                     if i % 100 == 0:
-                    #pdb.set_trace()
+                        trajs.append(x.detach().cpu().numpy())
                         tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                                      f'ngen{self.args.n_step}_{i:03d}.png'))
                     progress_bar.update(1)
             #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-            #                                                         f'ngen{self.args.n_step}_final.png'))
+        return trajs    #                                                         f'ngen{self.args.n_step}_final.png'))
 
 
    
@@ -268,6 +268,7 @@ class OurDDPM(object):
 
                         # added intermediate step vis
                         if (i - 99) % 100 == 0:
+
                             tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                                        f'2_lat_t{self.args.t_0}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_{i}_it{it}.png'))
                         progress_bar.update(1)
