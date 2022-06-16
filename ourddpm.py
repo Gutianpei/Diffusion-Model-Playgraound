@@ -1,3 +1,4 @@
+from site import setquit
 import time
 from glob import glob
 from tqdm import tqdm
@@ -13,7 +14,7 @@ import pdb
 from models.ddpm.diffusion import DDPM
 from models.improved_ddpm.script_util import i_DDPM
 from utils.text_dic import SRC_TRG_TXT_DIC
-from utils.diffusion_utils import get_beta_schedule, denoising_step
+from utils.diffusion_utils import get_beta_schedule, denoising_step, denoising_step_return_noise, denoising_with_traj
 
 from datasets.data_utils import get_dataset, get_dataloader
 from configs.paths_config import DATASET_PATHS, MODEL_PATHS, HYBRID_MODEL_PATHS, HYBRID_CONFIG
@@ -91,8 +92,7 @@ class OurDDPM(object):
             print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
                   f" Steps: {self.args.n_step}")
             
-            seq_test = np.linspace(0, 1, self.args.n_step) * self.args.n_step
-            seq_test = [int(s) for s in list(seq_test)]
+            seq_test = list(range(self.args.n_step))
             print('Uniform skip type')
 
             seq_test_next = [-1] + list(seq_test[:-1])
@@ -282,3 +282,82 @@ class OurDDPM(object):
                                                            f'3_gen_t{self.args.t_0}_it{it}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_mrat{self.args.model_ratio}.png'))
 
    
+    # modes: gen. generate noise trajectory
+    #        use. use noise trajectory: TODO
+    def generate_ddpm_and_noise_traj(self, xt, sigma, mode="gen", noise_traj=None):
+        # ----------- random noise -----------#
+        n = self.args.bs_test
+        trajs = []
+
+        # ----------- Models -----------#
+        if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
+            model_i = DDPM(self.config)
+   
+            ckpt = torch.load(self.args.model_path)
+            learn_sigma = False
+        elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
+            model_i = i_DDPM(self.config.data.dataset)
+            if self.args.model_path:
+                ckpt = torch.load(self.args.model_path)
+            else:
+                ckpt = torch.load(MODEL_PATHS[self.config.data.dataset])
+            learn_sigma = True
+        else:
+            print('Not implemented dataset')
+            raise ValueError
+        model_i.load_state_dict(ckpt)
+        model_i.to(self.device)
+        model_i = torch.nn.DataParallel(model_i)
+        model_i.eval()
+        print(f"{self.args.model_path} is loaded.")
+
+        with torch.no_grad():
+            # ----------- Generative Process -----------#
+            print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
+                  f" Steps: {self.args.n_step}")
+            seq_test = list(range(self.args.n_step))
+            # seq_test = np.linspace(0, 1, self.args.n_step) * self.args.n_step
+            # seq_test = [int(s) for s in list(seq_test)]
+            print('Uniform skip type')
+
+            seq_test_next = [-1] + list(seq_test[:-1])
+
+            x = xt                                           
+            with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
+                for w, test in enumerate(zip(reversed(seq_test), reversed(seq_test_next))):
+                    i, j = test
+                    t = (torch.ones(n) * i).to(self.device)
+                    t_next = (torch.ones(n) * j).to(self.device)
+
+                    if mode == "gen":
+                        x, noise = denoising_step_return_noise(x, t=t, t_next=t_next, models=model_i,
+                                        logvars=self.logvar,
+                                        b=self.betas,
+                                        eta=self.args.eta,
+                                        learn_sigma=learn_sigma,
+                                        ratio=1,
+                                        hybrid=self.args.hybrid_noise,
+                                        hybrid_config=HYBRID_CONFIG,
+                                        add_var = self.add_var,
+                                        add_var_on = sigma)
+                    elif mode == "use":
+                        assert noise_traj is not None, "noise_traj is required for use mode"
+                        zt = noise_traj[w]
+                        x, noise = denoising_with_traj(x, t=t, t_next=t_next, models=model_i,
+                                        logvars=self.logvar,
+                                        b=self.betas,
+                                        eta=self.args.eta,
+                                        learn_sigma=learn_sigma,
+                                        ratio=1,
+                                        hybrid=self.args.hybrid_noise,
+                                        hybrid_config=HYBRID_CONFIG,
+                                        add_var = self.add_var,
+                                        add_var_on = sigma,
+                                        zt=zt)
+                    # added intermediate step vis
+                    if i % 100 == 0:
+                        trajs.append(x.detach().cpu().numpy())
+                        tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+                                                                     f'ngen{self.args.n_step}_{i:03d}.png'))
+                    progress_bar.update(1)
+        return trajs, noise_traj

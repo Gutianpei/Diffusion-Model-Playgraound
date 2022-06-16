@@ -128,3 +128,176 @@ def denoising_step(xt, t, t_next, *,
         return xt_next
 
 
+def denoising_step_return_noise(xt, t, t_next, *,
+                   models,
+                   logvars,
+                   b,
+                   eta=0.0,
+                   learn_sigma=False,
+                   hybrid=False,
+                   hybrid_config=None,
+                   ratio=1.0,
+                   add_var= False,
+                   add_var_on = None
+                   ):
+
+    # Compute noise and variance
+    if type(models) != list:
+        model = models
+        et = model(xt, t)
+        if learn_sigma:
+            et, logvar_learned = torch.split(et, et.shape[1] // 2, dim=1)
+            logvar = logvar_learned
+        else:
+            logvar = extract(logvars, t, xt.shape)
+    else:
+        if not hybrid:
+            et = 0
+            logvar = 0
+            if ratio != 0.0:
+                et_i = ratio * models[1](xt, t)
+                if learn_sigma:
+                    et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                    logvar += logvar_learned
+                else:
+                    logvar += ratio * extract(logvars, t, xt.shape)
+                et += et_i
+
+            if ratio != 1.0:
+                et_i = (1 - ratio) * models[0](xt, t)
+                if learn_sigma:
+                    et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                    logvar += logvar_learned
+                else:
+                    logvar += (1 - ratio) * extract(logvars, t, xt.shape)
+                et += et_i
+
+        else:
+            for thr in list(hybrid_config.keys()):
+                if t.item() >= thr:
+                    et = 0
+                    logvar = 0
+                    for i, ratio in enumerate(hybrid_config[thr]):
+                        ratio /= sum(hybrid_config[thr])
+                        et_i = models[i+1](xt, t)
+                        if learn_sigma:
+                            et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                            logvar_i = logvar_learned
+                        else:
+                            logvar_i = extract(logvars, t, xt.shape)
+                        et += ratio * et_i
+                        logvar += ratio * logvar_i
+                    break
+
+    # Compute the next x
+    bt = extract(b, t, xt.shape)
+    at = extract((1.0 - b).cumprod(dim=0), t, xt.shape)
+
+    xt_next = torch.zeros_like(xt)
+
+    weight = bt / torch.sqrt(1 - at)
+
+    mean = 1 / torch.sqrt(1.0 - bt) * (xt - weight * et)
+
+    #add_var: variance sigma_t*z is added during the sampling process
+    #   pdb.set_trace()
+    if add_var and int(t.item()) in add_var_on:
+        noise = torch.randn_like(xt)
+        mask = 1 - (t == 0).float()
+        mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))
+        xt_next = mean + mask * torch.exp(0.5 * logvar) * noise
+    else:
+        xt_next = mean
+    xt_next = xt_next.float()
+
+    if add_var and int(t.item()) in add_var_on:
+        return xt_next, noise
+
+    return xt_next, 0
+
+
+
+def denoising_with_traj(xt, t, t_next, *,
+                   models,
+                   logvars,
+                   b,
+                   eta=0.0,
+                   learn_sigma=False,
+                   hybrid=False,
+                   hybrid_config=None,
+                   ratio=1.0,
+                   add_var= False,
+                   add_var_on = None, 
+                   zt = 0
+                   ):
+
+    # Compute noise and variance
+    if type(models) != list:
+        model = models
+        et = model(xt, t)
+        if learn_sigma:
+            et, logvar_learned = torch.split(et, et.shape[1] // 2, dim=1)
+            logvar = logvar_learned
+        else:
+            logvar = extract(logvars, t, xt.shape)
+    else:
+        if not hybrid:
+            et = 0
+            logvar = 0
+            if ratio != 0.0:
+                et_i = ratio * models[1](xt, t)
+                if learn_sigma:
+                    et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                    logvar += logvar_learned
+                else:
+                    logvar += ratio * extract(logvars, t, xt.shape)
+                et += et_i
+
+            if ratio != 1.0:
+                et_i = (1 - ratio) * models[0](xt, t)
+                if learn_sigma:
+                    et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                    logvar += logvar_learned
+                else:
+                    logvar += (1 - ratio) * extract(logvars, t, xt.shape)
+                et += et_i
+
+        else:
+            for thr in list(hybrid_config.keys()):
+                if t.item() >= thr:
+                    et = 0
+                    logvar = 0
+                    for i, ratio in enumerate(hybrid_config[thr]):
+                        ratio /= sum(hybrid_config[thr])
+                        et_i = models[i+1](xt, t)
+                        if learn_sigma:
+                            et_i, logvar_learned = torch.split(et_i, et_i.shape[1] // 2, dim=1)
+                            logvar_i = logvar_learned
+                        else:
+                            logvar_i = extract(logvars, t, xt.shape)
+                        et += ratio * et_i
+                        logvar += ratio * logvar_i
+                    break
+
+    # Compute the next x
+    bt = extract(b, t, xt.shape)
+    at = extract((1.0 - b).cumprod(dim=0), t, xt.shape)
+
+    xt_next = torch.zeros_like(xt)
+
+    weight = bt / torch.sqrt(1 - at)
+
+    mean = 1 / torch.sqrt(1.0 - bt) * (xt - weight * et)
+
+    #add_var: variance sigma_t*z is added during the sampling process
+    #   pdb.set_trace()
+    if add_var and int(t.item()) in add_var_on:
+        noise = zt
+        mask = 1 - (t == 0).float()
+        mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))
+        xt_next = mean + mask * torch.exp(0.5 * logvar) * noise
+    else:
+        xt_next = mean
+    xt_next = xt_next.float()
+
+    return xt_next, zt
