@@ -47,7 +47,7 @@ class MultiResolutionDataset(Dataset):
         # buffer = BytesIO(img_bytes)
         # img = Image.open(buffer)
 
-        img = Image.open(os.path.join(self.data_path, self.files[index]))
+        img = Image.open(os.path.join(self.data_path, self.files[index])).resize((self.resolution, self.resolution))
         img = self.transform(img)
         attr = self.attr_df.iloc[index]
         attr = [attr["Young"], attr["Male"], attr["Eyeglasses"]]
@@ -89,4 +89,4 @@ def get_celeba_dataset(data_root, config):
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
 
 
-    return train_dataset, val_dataset, test_dataset
+    return train_dataset, test_dataset

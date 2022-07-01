@@ -18,7 +18,9 @@ warnings.filterwarnings(action='ignore')
 device = 'cuda'
 
 args_dic = {
-    'config': 'celeba.yml'
+    'config': 'celeba.yml',
+    'bs_train': 4,
+    'device': device
     }
 args = dict2namespace(args_dic)
 

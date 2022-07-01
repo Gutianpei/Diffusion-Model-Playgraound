@@ -11,6 +11,7 @@ from torch import nn
 import torchvision.utils as tvu
 import pdb
 import random
+from torch.optim import AdamW
 
 
 from models.ddpm.diffusion import DDPM
@@ -101,7 +102,7 @@ class OurDDPM(object):
 
     def train_classifier(self):
         data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
-        model = create_classifier()
+        model = create_classifier().cuda()
 
         train_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
         loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=self.args.bs_train,
@@ -116,16 +117,18 @@ class OurDDPM(object):
             # train
             for step, (img, attrs) in enumerate(train_loader):
                 label = attrs[0]
-                x0 = img.to(self.config.device)
+                x0 = img.to("cuda")
                 e = torch.randn_like(x0)
                 a = (1 - self.betas).cumprod(dim=0)
                 t0 = random.randint(1, 100)
                 x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
 
+                ts = (torch.ones(self.args.bs_train) * t0).to("cuda")
+                #ts = torch.Tensor([t0], dtype=torch.long).cuda()
 
+                #pdb.set_trace()
 
-
-                logits = model(x.unsqueeze(0), timesteps=t0*torch.ones((1), dtype=torch.long).cuda())
+                logits = model(x, timesteps=ts)
                 loss = F.cross_entropy(logits, label, reduction="none")
                 loss.backward()
                 opt.step()
