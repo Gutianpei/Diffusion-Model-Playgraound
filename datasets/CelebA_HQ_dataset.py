@@ -22,13 +22,14 @@ class MultiResolutionDataset(Dataset):
 
         if not os.path.exists(path):
             raise IOError("the path doesn't exist", path)
-        
+
         self.data_path = path
         self.files = sorted(os.listdir(path))
         self.length = len(self.files)
         if attr_path:
+            #print(attr_path)
             self.attr_df = pd.read_csv(attr_path)
-        
+
 
         # with self.env.begin(write=False) as txn:
         #     self.length = int(txn.get("length".encode("utf-8")).decode("utf-8"))

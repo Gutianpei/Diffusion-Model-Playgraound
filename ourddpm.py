@@ -10,9 +10,12 @@ import torch
 from torch import nn
 import torchvision.utils as tvu
 import pdb
+import random
+
 
 from models.ddpm.diffusion import DDPM
 from models.improved_ddpm.script_util import i_DDPM
+from models.improved_ddpm.unet import EncoderUNetModel
 from utils.text_dic import SRC_TRG_TXT_DIC
 from utils.diffusion_utils import get_beta_schedule, denoising_step, denoising_step_return_noise, denoising_with_traj
 
@@ -20,6 +23,47 @@ from datasets.data_utils import get_dataset, get_dataloader
 from configs.paths_config import DATASET_PATHS, MODEL_PATHS, HYBRID_MODEL_PATHS, HYBRID_CONFIG
 from datasets.imagenet_dic import IMAGENET_DIC
 from utils.align_utils import run_alignment
+
+
+def create_classifier(
+    image_size = 256,
+    classifier_use_fp16 = False,
+    classifier_width = 256,
+    classifier_depth = 2,
+    classifier_attention_resolutions = "32,16,8",
+    classifier_use_scale_shift_norm = True,
+    classifier_resblock_updown = True,
+    classifier_pool = "attention",
+):
+    if image_size == 512:
+        channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
+    elif image_size == 256:
+        channel_mult = (1, 1, 2, 2, 4, 4)
+    elif image_size == 128:
+        channel_mult = (1, 1, 2, 3, 4)
+    elif image_size == 64:
+        channel_mult = (1, 2, 3, 4)
+    else:
+        raise ValueError(f"unsupported image size: {image_size}")
+
+    attention_ds = []
+    for res in classifier_attention_resolutions.split(","):
+        attention_ds.append(image_size // int(res))
+
+    return EncoderUNetModel(
+        image_size=image_size,
+        in_channels=3,
+        model_channels=classifier_width,
+        out_channels=2,
+        num_res_blocks=classifier_depth,
+        attention_resolutions=tuple(attention_ds),
+        channel_mult=channel_mult,
+        use_fp16=classifier_use_fp16,
+        num_head_channels=64,
+        use_scale_shift_norm=classifier_use_scale_shift_norm,
+        resblock_updown=classifier_resblock_updown,
+        pool=classifier_pool,
+    )
 
 class OurDDPM(object):
     def __init__(self, args, config, device=None):
@@ -52,10 +96,50 @@ class OurDDPM(object):
 
 
         #newly added
-        self.add_var = self.args.add_var
+        #self.add_var = self.args.add_var
        # self.add_var_on = self.args.add_var_on
-    
-    
+
+    def train_classifier(self):
+        data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
+        model = create_classifier()
+
+        train_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
+        loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=self.args.bs_train,
+                                    num_workers=self.config.data.num_workers)
+        train_loader = loader_dic["train"]
+        test_loader = loader_dic["test"]
+
+        opt = AdamW(model.parameters(),lr=3e-4)
+        #criterion = torch.nn.MSELoss()
+
+        for epoch in range(10):
+            # train
+            for step, (img, attrs) in enumerate(train_loader):
+                label = attrs[0]
+                x0 = img.to(self.config.device)
+                e = torch.randn_like(x0)
+                a = (1 - self.betas).cumprod(dim=0)
+                t0 = random.randint(1, 100)
+                x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+
+
+
+
+                logits = model(x.unsqueeze(0), timesteps=t0*torch.ones((1), dtype=torch.long).cuda())
+                loss = F.cross_entropy(logits, label, reduction="none")
+                loss.backward()
+                opt.step()
+                opt.zero_grad()
+            # eval
+            # log_probs = F.log_softmax(logits, dim=-1)
+            # selected = log_probs[range(len(logits)), y.view(-1)]
+            # correct = (log_probs.argmax(dim=1).cpu().numpy() == y.cpu().numpy()).sum()
+
+
+
+
+
+
     def generate_ddpm(self, xt, sigma):
         # ----------- random noise -----------#
         n = self.args.bs_test
@@ -63,12 +147,12 @@ class OurDDPM(object):
         trajs = []
 
         # ----------- Models -----------#
- 
+
 
 
         if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
             model_i = DDPM(self.config)
-   
+
             ckpt = torch.load(self.args.model_path)
             learn_sigma = False
         elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
@@ -91,7 +175,7 @@ class OurDDPM(object):
             # ----------- Generative Process -----------#
             print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
                   f" Steps: {self.args.n_step}")
-            
+
             seq_test = list(range(self.args.n_step))
             print('Uniform skip type')
 
@@ -101,7 +185,7 @@ class OurDDPM(object):
             # e = torch.randn_like(x0)
             # a = (1 - self.betas).cumprod(dim=0)
             # x = x0 * a[self.args.t_0 - 1].sqrt() + e * (1.0 - a[self.args.t_0 - 1]).sqrt()
-            x = xt                                           
+            x = xt
 
             with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
                 for i, j in zip(reversed(seq_test), reversed(seq_test_next)):
@@ -130,7 +214,7 @@ class OurDDPM(object):
         return trajs    #                                                         f'ngen{self.args.n_step}_final.png'))
 
 
-   
+
 
     def edit_one_image(self):
         # ----------- Data -----------#
@@ -281,7 +365,7 @@ class OurDDPM(object):
                     tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                            f'3_gen_t{self.args.t_0}_it{it}_ninv{self.args.n_inv_step}_ngen{self.args.n_test_step}_mrat{self.args.model_ratio}.png'))
 
-   
+
     # modes: gen. generate noise trajectory
     #        use. use noise trajectory: TODO
     def generate_ddpm_and_noise_traj(self, xt, sigma, mode="gen", noise_traj=None):
@@ -292,7 +376,7 @@ class OurDDPM(object):
         # ----------- Models -----------#
         if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
             model_i = DDPM(self.config)
-   
+
             ckpt = torch.load(self.args.model_path)
             learn_sigma = False
         elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
@@ -322,7 +406,7 @@ class OurDDPM(object):
 
             seq_test_next = [-1] + list(seq_test[:-1])
 
-            x = xt                                           
+            x = xt
             with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
                 for w, test in enumerate(zip(reversed(seq_test), reversed(seq_test_next))):
                     i, j = test
