@@ -288,6 +288,8 @@ class OurDDPM(object):
         # ----------- random noise -----------#
         n = self.args.bs_test
         trajs = []
+        if mode == "gen":
+            noise_traj = []
 
         # ----------- Models -----------#
         if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
@@ -340,9 +342,10 @@ class OurDDPM(object):
                                         hybrid_config=HYBRID_CONFIG,
                                         add_var = self.add_var,
                                         add_var_on = sigma)
+                        noise_traj.append(noise.detach().cpu().numpy())
                     elif mode == "use":
                         assert noise_traj is not None, "noise_traj is required for use mode"
-                        zt = noise_traj[w]
+                        zt = torch.tensor(noise_traj[w]).to(self.device)
                         x, noise = denoising_with_traj(x, t=t, t_next=t_next, models=model_i,
                                         logvars=self.logvar,
                                         b=self.betas,
