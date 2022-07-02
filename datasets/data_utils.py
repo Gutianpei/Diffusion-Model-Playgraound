@@ -4,13 +4,13 @@ from .LSUN_dataset import get_lsun_dataset
 from torch.utils.data import DataLoader
 from .IMAGENET_dataset import get_imagenet_dataset
 
-def get_dataset(dataset_type, dataset_paths, config, target_class_num=None, gender=None):
+def get_dataset(dataset_type, dataset_paths, config, label = None, target_class_num=None, gender=None):
     if dataset_type == 'AFHQ':
         train_dataset, test_dataset = get_afhq_dataset(dataset_paths['AFHQ'], config)
     elif dataset_type == "LSUN":
         train_dataset, test_dataset = get_lsun_dataset(dataset_paths['LSUN'], config)
     elif dataset_type == "CelebA_HQ":
-        train_dataset, test_dataset = get_celeba_dataset(dataset_paths['CelebA_HQ'], config)
+        train_dataset, test_dataset = get_celeba_dataset(dataset_paths, config)
     elif dataset_type == "IMAGENET":
         train_dataset, test_dataset = get_imagenet_dataset(dataset_paths['IMAGENET'], config, class_num=target_class_num)
     else:
@@ -40,5 +40,3 @@ def get_dataloader(train_dataset, test_dataset, bs_train=1, num_workers=0):
     )
 
     return {'train': train_loader, 'test': test_loader}
-
-
