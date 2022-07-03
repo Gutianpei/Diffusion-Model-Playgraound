@@ -12,6 +12,7 @@ import torchvision.utils as tvu
 import pdb
 import random
 from torch.optim import AdamW
+import torch.nn.functional as F
 
 
 from models.ddpm.diffusion import DDPM
@@ -55,7 +56,7 @@ def create_classifier(
         image_size=image_size,
         in_channels=3,
         model_channels=classifier_width,
-        out_channels=2,
+        out_channels=1,
         num_res_blocks=classifier_depth,
         attention_resolutions=tuple(attention_ds),
         channel_mult=channel_mult,
@@ -101,44 +102,90 @@ class OurDDPM(object):
        # self.add_var_on = self.args.add_var_on
 
     def train_classifier(self):
-        data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
-        model = create_classifier().cuda()
+        # data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
+        data_root = "/home/summertony717/data/celeba_hq"
+        model = create_classifier()
+        # if torch.cuda.device_count() > 1:
+        #     model = nn.DataParallel(model)
+        model.to("cuda")
+        self.model = model
 
-        train_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
+        train_dataset, val_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
         loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=self.args.bs_train,
                                     num_workers=self.config.data.num_workers)
-        train_loader = loader_dic["train"]
-        test_loader = loader_dic["test"]
+        self.train_loader = loader_dic["train"]
+        self.test_loader = loader_dic["test"]
 
         opt = AdamW(model.parameters(),lr=3e-4)
         #criterion = torch.nn.MSELoss()
 
-        for epoch in range(10):
+        model.train()
+        loss_ls = []
+        for epoch in range(3):
             # train
-            for step, (img, attrs) in enumerate(train_loader):
-                label = attrs[0]
+            cnt = 0
+            for step, (img, attrs) in enumerate(self.train_loader):
+                # print(step, flush=True)
+                N = img.shape[0]
+                cnt += N
+                label = (attrs[0].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
                 x0 = img.to("cuda")
-                e = torch.randn_like(x0)
-                a = (1 - self.betas).cumprod(dim=0)
-                t0 = random.randint(1, 100)
-                x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                # e = torch.randn_like(x0)
+                # a = (1 - self.betas).cumprod(dim=0)
+                # t0 = random.randint(1, 100)
+                # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                # ts = (torch.ones(N) * t0).to("cuda")
 
-                ts = (torch.ones(self.args.bs_train) * t0).to("cuda")
-                #ts = torch.Tensor([t0], dtype=torch.long).cuda()
+                # testing the code without the randomness first
+                x = x0
+                ts = (torch.ones(N) * 0).to("cuda")
 
                 #pdb.set_trace()
 
-                logits = model(x, timesteps=ts)
-                loss = F.cross_entropy(logits, label, reduction="none")
+                logits = F.sigmoid(model(x, timesteps=ts))
+
+                loss = F.binary_cross_entropy(logits, label, reduction="mean")
+                # loss_ls.append(loss.detach().cpu())
+
                 loss.backward()
                 opt.step()
                 opt.zero_grad()
+                torch.cuda.empty_cache()
+                if step % 100 == 0 and step != 0:  # every 100 samples
+                    model.eval()
+                    val_loss = self.eval_classifier(self.test_loader)
+                    print(f"epoch {epoch} step {step}: validation loss = {val_loss}")
+                    model.train()
+
             # eval
             # log_probs = F.log_softmax(logits, dim=-1)
             # selected = log_probs[range(len(logits)), y.view(-1)]
             # correct = (log_probs.argmax(dim=1).cpu().numpy() == y.cpu().numpy()).sum()
 
 
+
+    def eval_classifier(self, dataset_loader):
+        loss_ls = []
+        with torch.no_grad():
+            for step, (img, attrs) in enumerate(dataset_loader):
+                # print("eval step", step, flush=True)
+                N = img.shape[0]
+                label = (attrs[0].reshape(len(attrs[0]), 1).float().to("cuda") + 1) / 2     # reshape and normalize
+                x0 = img.to("cuda")
+                # e = torch.randn_like(x0)
+                # a = (1 - self.betas).cumprod(dim=0)
+                # t0 = random.randint(1, 100)
+                # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                # ts = (torch.ones(N) * t0).to("cuda")
+
+                # testing the code without the randomness first
+                x = x0
+                ts = (torch.ones(N) * 0).to("cuda")
+
+                logits = F.sigmoid(self.model(x, timesteps=ts))
+                loss = F.binary_cross_entropy(logits, label, reduction="mean").detach().cpu()
+                loss_ls.append(loss)
+        return torch.mean(loss_ls)
 
 
 

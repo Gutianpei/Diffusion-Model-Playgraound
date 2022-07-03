@@ -30,3 +30,4 @@ config = dict2namespace(config_dic)
 
 runner = OurDDPM(args, config, device=device)
 runner.train_classifier()
+torch.save(runner.model.state_dict(), "classifier.pt")

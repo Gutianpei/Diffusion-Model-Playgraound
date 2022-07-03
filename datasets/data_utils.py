@@ -10,7 +10,7 @@ def get_dataset(dataset_type, dataset_paths, config, label = None, target_class_
     elif dataset_type == "LSUN":
         train_dataset, test_dataset = get_lsun_dataset(dataset_paths['LSUN'], config)
     elif dataset_type == "CelebA_HQ":
-        train_dataset, test_dataset = get_celeba_dataset(dataset_paths, config)
+        return get_celeba_dataset(dataset_paths, config)
     elif dataset_type == "IMAGENET":
         train_dataset, test_dataset = get_imagenet_dataset(dataset_paths['IMAGENET'], config, class_num=target_class_num)
     else:

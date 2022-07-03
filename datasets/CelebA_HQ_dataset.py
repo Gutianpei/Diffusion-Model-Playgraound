@@ -69,24 +69,24 @@ def get_celeba_dataset(data_root, config):
                                   tfs.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5),
                                                 inplace=True)])
 
-    # train_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
-    #                                         train_transform, config.data.image_size,
-    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
-    # val_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'val', 'images'),
-    #                                         val_transform, config.data.image_size,
-    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
-    # test_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
-    #                                         test_transform, config.data.image_size,
-    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
     train_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
-                                            train_transform, 256,
+                                            train_transform, config.data.image_size,
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
     val_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'val', 'images'),
-                                            val_transform, 256,
+                                            val_transform, config.data.image_size,
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
     test_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
-                                            test_transform, 256,
+                                            test_transform, config.data.image_size,
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
+    # train_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
+    #                                         train_transform, 256,
+    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
+    # val_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'val', 'images'),
+    #                                         val_transform, 256,
+    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
+    # test_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
+    #                                         test_transform, 256,
+    #                                         os.path.join(data_root, 'list_attr_celeba.csv'))
 
 
-    return train_dataset, test_dataset
+    return train_dataset, val_dataset, test_dataset
