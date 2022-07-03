@@ -29,5 +29,8 @@ with open(os.path.join('configs', args.config), 'r') as f:
 config = dict2namespace(config_dic)
 
 runner = OurDDPM(args, config, device=device)
+
+
+print("Start training")
 runner.train_classifier()
 torch.save(runner.model.state_dict(), "classifier.pt")
