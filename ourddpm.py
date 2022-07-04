@@ -105,11 +105,11 @@ class OurDDPM(object):
     def train_classifier(self):
         data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
         #data_root = "/home/summertony717/data/celeba_hq"
-        model = create_classifier()
+        self.model = create_classifier().to("cuda")
         # if torch.cuda.device_count() > 1:
         #     model = nn.DataParallel(model)
-        model.to("cuda")
-        self.model = model
+        #model.to("cuda")
+        #self.model = model
         print("Classifier created")
         train_dataset, val_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
         loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=self.args.bs_train,
@@ -117,21 +117,25 @@ class OurDDPM(object):
         self.train_loader = loader_dic["train"]
         self.test_loader = loader_dic["test"]
 
-        opt = AdamW(model.parameters(),lr=3e-4)
-        #criterion = torch.nn.MSELoss()
+        opt = torch.optim.SGD(self.model.parameters(), lr=0.0005)
+        #opt = torch.optim.Adam(self.model.parameters(), lr=1se-4)
+        criterion = torch.nn.BCELoss()
 
-        model.train()
+        self.model.train()
         loss_ls = []
         acc_ls = {}
         for epoch in range(10):
+            print(f"Epoch {epoch}")
             # train
             cnt = 0
             pbar = tqdm(self.train_loader, ncols=80, position=0, leave=True, ascii=True)
+            #pbar = self.train_loader
             for step, (img, attrs) in enumerate(pbar):
                 # print(step, flush=True)
+                #pdb.set_trace()
                 N = img.shape[0]
                 cnt += N
-                label = (attrs[0].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
+                label = (attrs[1].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
                 x0 = img.to("cuda")
                 # e = torch.randn_like(x0)
                 # a = (1 - self.betas).cumprod(dim=0)
@@ -145,23 +149,23 @@ class OurDDPM(object):
 
                 #pdb.set_trace()
 
-                logits = F.sigmoid(model(x, timesteps=ts))
+                logits = F.sigmoid(self.model(x, timesteps=ts))
 
-                loss = F.binary_cross_entropy(logits, label, reduction="mean")
+                loss = criterion(logits, label)
                 # loss_ls.append(loss.detach().cpu())
                 pbar.set_description(f"Epoch {epoch}, Loss: {loss.item():.2f}")
-                #pbar.update(0)
+                #pbar.update(100)
                 loss.backward()
                 opt.step()
                 opt.zero_grad()
-                torch.cuda.empty_cache()
+                #torch.cuda.empty_cache()
                 #if step % 1000 == 0 and step != 0:  # every 100 samples
-            model.eval()
+            self.model.eval()
             print("Evaluating...")
             acc, val_loss = self.eval_classifier(self.test_loader)
             print(f"Epoch {epoch}: validation loss = {val_loss}; acc = {acc}")
             acc_ls[epoch] = acc
-            model.train()
+            self.model.train()
         print(acc_ls)
 
             # eval
@@ -174,11 +178,9 @@ class OurDDPM(object):
         loss_ls = []
         with torch.no_grad():
             for step, (img, attrs) in enumerate(dataset_loader):
-                if step == 10:
-                    break
                 # print("eval step", step, flush=True)
                 N = img.shape[0]
-                label_cpu = (attrs[0].reshape(len(attrs[0]), 1).float() + 1) / 2
+                label_cpu = (attrs[1].reshape(len(attrs[1]), 1).float() + 1) / 2
                 label = label_cpu.to("cuda")     # reshape and normalize
                 x0 = img.to("cuda")
                 # e = torch.randn_like(x0)

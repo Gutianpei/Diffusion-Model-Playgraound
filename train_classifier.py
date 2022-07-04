@@ -19,7 +19,7 @@ device = 'cuda'
 
 args_dic = {
     'config': 'celeba.yml',
-    'bs_train': 4,
+    'bs_train': 16,
     'device': device
     }
 args = dict2namespace(args_dic)
@@ -33,4 +33,4 @@ runner = OurDDPM(args, config, device=device)
 
 print("Start training")
 runner.train_classifier()
-torch.save(runner.model.state_dict(), "classifier.pt")
+torch.save(runner.model.state_dict(), "gender_classifier.pt")
