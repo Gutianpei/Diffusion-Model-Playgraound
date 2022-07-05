@@ -41,7 +41,7 @@ def create_classifier(
     if image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
     elif image_size == 256:
-        channel_mult = (1, 2, 4)
+        channel_mult = (1, 1, 2, 2, 4, 4)
     elif image_size == 128:
         channel_mult = (1, 1, 2, 3, 4)
     elif image_size == 64:
@@ -128,36 +128,39 @@ class OurDDPM(object):
             print(f"Epoch {epoch}")
             # train
             cnt = 0
-            pbar = tqdm(self.train_loader, ncols=80, position=0, leave=True, ascii=True)
+            with tqdm(total=len(self.train_loader), ncols=80) as pbar:
+            #pbar = tqdm(self.train_loader, ncols=80)
             #pbar = self.train_loader
-            for step, (img, attrs) in enumerate(pbar):
-                # print(step, flush=True)
-                #pdb.set_trace()
-                N = img.shape[0]
-                cnt += N
-                label = (attrs[1].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
-                x0 = img.to("cuda")
-                # e = torch.randn_like(x0)
-                # a = (1 - self.betas).cumprod(dim=0)
-                # t0 = random.randint(1, 100)
-                # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-                # ts = (torch.ones(N) * t0).to("cuda")
+            #pdb.set_trace()
+                for index, (img, attrs) in enumerate(self.train_loader):
+                    # print(step, flush=True)
+                    #pdb.set_trace()
+                    N = img.shape[0]
+                    cnt += N
+                    #pdb.set_trace()
+                    label = (attrs[1].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
+                    x0 = img.to("cuda")
+                    # e = torch.randn_like(x0)
+                    # a = (1 - self.betas).cumprod(dim=0)
+                    # t0 = random.randint(1, 100)
+                    # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    # ts = (torch.ones(N) * t0).to("cuda")
 
-                # testing the code without the randomness first
-                x = x0
-                ts = (torch.ones(N) * 0).to("cuda")
+                    # testing the code without the randomness first
+                    x = x0
+                    ts = (torch.ones(N) * 0).to("cuda")
 
-                #pdb.set_trace()
+                    #pdb.set_trace()
 
-                logits = F.sigmoid(self.model(x, timesteps=ts))
+                    logits = F.sigmoid(self.model(x, timesteps=ts))
 
-                loss = criterion(logits, label)
-                # loss_ls.append(loss.detach().cpu())
-                pbar.set_description(f"Epoch {epoch}, Loss: {loss.item():.2f}")
-                #pbar.update(100)
-                loss.backward()
-                opt.step()
-                opt.zero_grad()
+                    loss = criterion(logits, label)
+                    # loss_ls.append(loss.detach().cpu())
+                    pbar.set_description(f"Epoch {epoch}, Loss: {loss.item():.2f}")
+                    pbar.update(1)
+                    loss.backward()
+                    opt.step()
+                    opt.zero_grad()
                 #pdb.set_trace()
                 #torch.cuda.empty_cache()
                 #if step % 1000 == 0 and step != 0:  # every 100 samples
