@@ -32,16 +32,16 @@ def create_classifier(
     image_size = 256,
     classifier_use_fp16 = False,
     classifier_width = 256,
-    classifier_depth = 2,
-    classifier_attention_resolutions = "32,16,8",
+    classifier_depth = 1,
+    classifier_attention_resolutions = "16,8,4",
     classifier_use_scale_shift_norm = True,
     classifier_resblock_updown = True,
-    classifier_pool = "attention",
+    classifier_pool = "spatial_v2",
 ):
     if image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
     elif image_size == 256:
-        channel_mult = (1, 1, 2, 2, 4, 4)
+        channel_mult = (1, 2, 4)
     elif image_size == 128:
         channel_mult = (1, 1, 2, 3, 4)
     elif image_size == 64:
@@ -117,7 +117,7 @@ class OurDDPM(object):
         self.train_loader = loader_dic["train"]
         self.test_loader = loader_dic["test"]
 
-        opt = torch.optim.SGD(self.model.parameters(), lr=0.0005)
+        opt = torch.optim.SGD(self.model.parameters(), lr=0.001)
         #opt = torch.optim.Adam(self.model.parameters(), lr=1se-4)
         criterion = torch.nn.BCELoss()
 
@@ -158,6 +158,7 @@ class OurDDPM(object):
                 loss.backward()
                 opt.step()
                 opt.zero_grad()
+                #pdb.set_trace()
                 #torch.cuda.empty_cache()
                 #if step % 1000 == 0 and step != 0:  # every 100 samples
             self.model.eval()

@@ -5,6 +5,7 @@ from PIL import Image
 import torchvision.transforms as tfs
 import os
 import pandas as pd
+import pdb
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, transform, resolution=256, attr_path=None):
@@ -29,6 +30,7 @@ class MultiResolutionDataset(Dataset):
         if attr_path:
             #print(attr_path)
             self.attr_df = pd.read_csv(attr_path)
+            #self.length = len(self.attr_df)
 
 
         # with self.env.begin(write=False) as txn:
@@ -49,9 +51,13 @@ class MultiResolutionDataset(Dataset):
 
         img = Image.open(os.path.join(self.data_path, self.files[index])).resize((self.resolution, self.resolution))
         img = self.transform(img)
-        attr = self.attr_df.iloc[index]
-        attr = [attr["Young"], attr["Male"], attr["Eyeglasses"]]
-        return img, attr
+        df_index = int(self.files[index].split(".")[0]) - 1
+        attr = self.attr_df.iloc[df_index]
+        attrs = [attr["Young"], attr["Male"], attr["Eyeglasses"]]
+        assert attr["image_id"] == self.files[index]
+
+        #pdb.set_trace()
+        return img, attrs
 
 
 ################################################################################

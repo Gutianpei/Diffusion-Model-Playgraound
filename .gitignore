@@ -1,4 +1,4 @@
 pretrained/*
 __pycache__/
 runs
-classifier.pt
+*.pt

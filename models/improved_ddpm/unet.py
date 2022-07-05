@@ -11,6 +11,7 @@ import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
 
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .nn import (
@@ -825,17 +826,18 @@ class EncoderUNetModel(nn.Module):
                 ),
             )
         elif pool == "spatial":
+            #pdb.set_trace()
             self.out = nn.Sequential(
-                nn.Linear(self._feature_size, 2048),
-                nn.ReLU(),
-                nn.Linear(2048, self.out_channels),
+                nn.Linear(self._feature_size, self.out_channels),
+                # nn.ReLU(),
+                # nn.Linear(2048, ),
             )
         elif pool == "spatial_v2":
             self.out = nn.Sequential(
-                nn.Linear(self._feature_size, 2048),
-                normalization(2048),
+                nn.Linear(self._feature_size, 512),
+                normalization(512),
                 nn.SiLU(),
-                nn.Linear(2048, self.out_channels),
+                nn.Linear(512, self.out_channels),
 
             )
         else:
