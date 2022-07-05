@@ -81,7 +81,7 @@ def get_celeba_dataset(data_root, config):
     val_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'val', 'images'),
                                             val_transform, config.data.image_size,
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
-    test_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
+    test_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'test', 'images'),
                                             test_transform, config.data.image_size,
                                             os.path.join(data_root, 'list_attr_celeba.csv'))
     # train_dataset = MultiResolutionDataset(os.path.join(data_root, 'raw_images', 'train', 'images'),
