@@ -12,24 +12,36 @@ import pdb
 import cv2
 import glob
 import pickle
+import torch.multiprocessing as mp
 
 warnings.filterwarnings(action='ignore')
 
-device = 'cuda'
 
-args_dic = {
-    'config': 'celeba.yml',
-    'bs_train': 12,
-    'device': device
-    }
-args = dict2namespace(args_dic)
+def main():
+    device = 'cuda'
 
-with open(os.path.join('configs', args.config), 'r') as f:
-    config_dic = yaml.safe_load(f)
-config = dict2namespace(config_dic)
+    args_dic = {
+        'config': 'celeba.yml',
+        'bs_train': 8,
+        'device': device
+        }
+    args = dict2namespace(args_dic)
 
-runner = OurDDPM(args, config, device=device)
+    with open(os.path.join('configs', args.config), 'r') as f:
+        config_dic = yaml.safe_load(f)
+    config = dict2namespace(config_dic)
+
+    runner = OurDDPM(args, config, device=device)
 
 
-print("Start training")
-runner.train_classifier()
+    GPU_CNT = torch.cuda.device_count()
+    SAVE_PATH = "checkpoint/attr_classifier_noisy.pt"
+
+    print("Start training")
+    if GPU_CNT > 1:
+        mp.spawn(runner.train_classifier, args=(True, GPU_CNT, SAVE_PATH), nprocs=GPU_CNT, join=True)
+    else:
+        runner.train_classifier()
+
+if __name__ == "__main__":
+    main()
