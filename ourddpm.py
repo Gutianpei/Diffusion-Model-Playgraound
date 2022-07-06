@@ -95,12 +95,13 @@ class OurDDPM(object):
             self.logvar = np.log(np.append(posterior_variance[1], betas[1:]))
 
         elif self.model_var_type == 'fixedsmall':
-            self.logvar = np.log(np.maximum(posterior_variance, 1e-20))
+            self.variance = np.maximum(posterior_variance, 1e-20)
+            self.logvar = np.log(self.variance)
 
 
         #newly added
-        #self.add_var = self.args.add_var
-       # self.add_var_on = self.args.add_var_on
+        self.add_var = self.args.add_var
+        self.add_var_on = self.args.add_var_on
 
     def train_classifier(self):
         data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
@@ -118,14 +119,14 @@ class OurDDPM(object):
         self.test_loader = loader_dic["test"]
 
         opt = torch.optim.SGD(self.model.parameters(), lr=0.001)
-        #opt = torch.optim.Adam(self.model.parameters(), lr=1se-4)
+        #opt = torch.optim.Adam(self.model.parameters(), lr=3e-4)
         criterion = torch.nn.BCELoss()
 
         self.model.train()
         loss_ls = []
         acc_ls = {}
-        for epoch in range(10):
-            print(f"Epoch {epoch}")
+        best_acc = 0
+        for epoch in range(100):
             # train
             cnt = 0
             with tqdm(total=len(self.train_loader), ncols=80) as pbar:
@@ -138,17 +139,17 @@ class OurDDPM(object):
                     N = img.shape[0]
                     cnt += N
                     #pdb.set_trace()
-                    label = (attrs[1].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
+                    label = (attrs[0].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
                     x0 = img.to("cuda")
-                    # e = torch.randn_like(x0)
-                    # a = (1 - self.betas).cumprod(dim=0)
-                    # t0 = random.randint(1, 100)
-                    # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-                    # ts = (torch.ones(N) * t0).to("cuda")
+                    e = torch.randn_like(x0)
+                    a = (1 - self.betas).cumprod(dim=0)
+                    t0 = random.randint(1, 100)
+                    x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    ts = (torch.ones(N) * t0).to("cuda")
 
                     # testing the code without the randomness first
-                    x = x0
-                    ts = (torch.ones(N) * 0).to("cuda")
+                    #x = x0
+                    #ts = (torch.ones(N) * 0).to("cuda")
 
                     #pdb.set_trace()
 
@@ -169,6 +170,11 @@ class OurDDPM(object):
             acc, val_loss = self.eval_classifier(self.test_loader)
             print(f"Epoch {epoch}: validation loss = {val_loss}; acc = {acc}")
             acc_ls[epoch] = acc
+            if acc > best_acc:
+                best_acc = acc
+                torch.save(self.model.state_dict(), "young_classifier_sgd_best.pt")
+            if (epoch + 1) % 10 == 0:
+                torch.save(self.model.state_dict(), f"young_classifier_sgd_epoch{epoch}.pt")
             self.model.train()
         print(acc_ls)
 
@@ -184,18 +190,18 @@ class OurDDPM(object):
             for step, (img, attrs) in enumerate(dataset_loader):
                 # print("eval step", step, flush=True)
                 N = img.shape[0]
-                label_cpu = (attrs[1].reshape(len(attrs[1]), 1).float() + 1) / 2
+                label_cpu = (attrs[0].reshape(len(attrs[1]), 1).float() + 1) / 2
                 label = label_cpu.to("cuda")     # reshape and normalize
                 x0 = img.to("cuda")
-                # e = torch.randn_like(x0)
-                # a = (1 - self.betas).cumprod(dim=0)
-                # t0 = random.randint(1, 100)
-                # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-                # ts = (torch.ones(N) * t0).to("cuda")
 
+                e = torch.randn_like(x0)
+                a = (1 - self.betas).cumprod(dim=0)
+                t0 = random.randint(1, 100)
+                x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                ts = (torch.ones(N) * t0).to("cuda")
                 # testing the code without the randomness first
-                x = x0
-                ts = (torch.ones(N) * 0).to("cuda")
+                #x = x0
+                #ts = (torch.ones(N) * 0).to("cuda")
 
                 logits = F.sigmoid(self.model(x, timesteps=ts))
                 y_pred_tag = torch.round(logits).detach().cpu()
@@ -210,6 +216,80 @@ class OurDDPM(object):
         acc = acc * 100
         return acc, np.mean(loss_ls)
 
+    def guided_generate_ddpm(self, xt, sigma, classifier, id):
+        # ----------- random noise -----------#
+        n = self.args.bs_test
+        x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
+        trajs = []
+
+        # ----------- Classifier --------#
+        classifier = classifier.cuda()
+        classifier.eval()
+        # ----------- Models -----------#
+        if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
+            model_i = DDPM(self.config)
+
+            ckpt = torch.load(self.args.model_path)
+            learn_sigma = False
+        elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
+            model_i = i_DDPM(self.config.data.dataset)
+            if self.args.model_path:
+                ckpt = torch.load(self.args.model_path)
+            else:
+                ckpt = torch.load(MODEL_PATHS[self.config.data.dataset])
+            learn_sigma = True
+        else:
+            print('Not implemented dataset')
+            raise ValueError
+        model_i.load_state_dict(ckpt)
+        model_i.to(self.device)
+        model_i = torch.nn.DataParallel(model_i)
+        model_i.eval()
+        print(f"{self.args.model_path} is loaded.")
+
+        with torch.no_grad():
+            # ----------- Generative Process -----------#
+            print(f"Sampling type: {self.args.sample_type.upper()} with eta {self.args.eta}, "
+                  f" Steps: {self.args.n_step}")
+
+            seq_test = list(range(self.args.n_step))
+            print('Uniform skip type')
+
+            seq_test_next = [-1] + list(seq_test[:-1])
+
+
+            # e = torch.randn_like(x0)
+            # a = (1 - self.betas).cumprod(dim=0)
+            # x = x0 * a[self.args.t_0 - 1].sqrt() + e * (1.0 - a[self.args.t_0 - 1]).sqrt()
+            x = xt
+
+            with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
+                for i, j in zip(reversed(seq_test), reversed(seq_test_next)):
+                    t = (torch.ones(n) * i).to(self.device)
+                    t_next = (torch.ones(n) * j).to(self.device)
+
+                    x = denoising_step(x, t=t, t_next=t_next, models=model_i,
+                                        logvars=self.logvar,
+                                        sampling_type=self.args.sample_type,
+                                        b=self.betas,
+                                        eta=self.args.eta,
+                                        learn_sigma=learn_sigma,
+                                        ratio=1,
+                                        hybrid=self.args.hybrid_noise,
+                                        hybrid_config=HYBRID_CONFIG,
+                                        add_var = self.add_var,
+                                        add_var_on = sigma,
+                                        classifier = classifier,
+                                        classifier_scale = self.args.classifier_scale,
+                                        variance = self.variance)
+                    progress_bar.update(1)
+                    # added intermediate step vis
+                    #if i % 100 == 0:
+                        #trajs.append(x.detach().cpu().numpy())
+                tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+                                                                     f'ngen{self.args.n_step}_{id}_guided.png'))
+
+            #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
 
 
 

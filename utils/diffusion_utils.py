@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import pdb
-
+import torch.nn.functional as F
 
 def get_beta_schedule(*, beta_start, beta_end, num_diffusion_timesteps):
     betas = np.linspace(beta_start, beta_end,
@@ -33,7 +33,10 @@ def denoising_step(xt, t, t_next, *,
                    ratio=1.0,
                    out_x0_t=False,
                    add_var= False,
-                   add_var_on = None
+                   add_var_on = None,
+                   classifier = None,
+                   classifier_scale = None,
+                   variance = None
                    ):
 
     # Compute noise and variance
@@ -83,7 +86,8 @@ def denoising_step(xt, t, t_next, *,
                         et += ratio * et_i
                         logvar += ratio * logvar_i
                     break
-
+    if variance is not None:
+        var = extract(variance, t, xt.shape)
     # Compute the next x
     bt = extract(b, t, xt.shape)
     at = extract((1.0 - b).cumprod(dim=0), t, xt.shape)
@@ -100,7 +104,17 @@ def denoising_step(xt, t, t_next, *,
         mean = 1 / torch.sqrt(1.0 - bt) * (xt - weight * et)
 
         #add_var: variance sigma_t*z is added during the sampling process
-     #   pdb.set_trace()
+
+        # classifier guided genetation
+        if classifier is not None:
+            with torch.enable_grad():
+                x_in = xt.detach().requires_grad_(True)
+                logits = classifier(x_in, t)
+                log_probs = F.sigmoid(logits)
+                gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
+                new_mean = mean + var * gradient.float()
+                mean = new_mean
+
         if add_var and int(t.item()) in add_var_on:
             noise = torch.randn_like(xt)
             mask = 1 - (t == 0).float()
@@ -227,7 +241,7 @@ def denoising_with_traj(xt, t, t_next, *,
                    hybrid_config=None,
                    ratio=1.0,
                    add_var= False,
-                   add_var_on = None, 
+                   add_var_on = None,
                    zt = 0
                    ):
 

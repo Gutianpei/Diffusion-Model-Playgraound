@@ -33,4 +33,3 @@ runner = OurDDPM(args, config, device=device)
 
 print("Start training")
 runner.train_classifier()
-torch.save(runner.model.state_dict(), "gender_classifier_deep.pt")
