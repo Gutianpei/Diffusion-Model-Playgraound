@@ -6,6 +6,7 @@ import torchvision.transforms as tfs
 import os
 import pandas as pd
 import pdb
+import torch
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, transform, resolution=256, attr_path=None):
@@ -53,7 +54,7 @@ class MultiResolutionDataset(Dataset):
         img = self.transform(img)
         df_index = int(self.files[index].split(".")[0]) - 1
         attr = self.attr_df.iloc[df_index]
-        attrs = [attr["Young"], attr["Male"], attr["Eyeglasses"]]
+        attrs = torch.tensor([attr["Young"], attr["Male"], attr["Eyeglasses"]])
         assert attr["image_id"] == self.files[index]
 
         #pdb.set_trace()

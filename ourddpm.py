@@ -13,6 +13,9 @@ import pdb
 import random
 from torch.optim import AdamW
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 import numpy as np
 
 
@@ -21,6 +24,7 @@ from models.improved_ddpm.script_util import i_DDPM
 from models.improved_ddpm.unet import EncoderUNetModel
 from utils.text_dic import SRC_TRG_TXT_DIC
 from utils.diffusion_utils import get_beta_schedule, denoising_step, denoising_step_return_noise, denoising_with_traj
+from utils.dist_utils import dist_cleanup, dist_setup
 
 from datasets.data_utils import get_dataset, get_dataloader
 from configs.paths_config import DATASET_PATHS, MODEL_PATHS, HYBRID_MODEL_PATHS, HYBRID_CONFIG
@@ -37,6 +41,7 @@ def create_classifier(
     classifier_use_scale_shift_norm = True,
     classifier_resblock_updown = True,
     classifier_pool = "spatial_v2",
+    feature_num = 1
 ):
     if image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
@@ -57,7 +62,7 @@ def create_classifier(
         image_size=image_size,
         in_channels=3,
         model_channels=classifier_width,
-        out_channels=1,
+        out_channels=feature_num,
         num_res_blocks=classifier_depth,
         attention_resolutions=tuple(attention_ds),
         channel_mult=channel_mult,
@@ -96,121 +101,137 @@ class OurDDPM(object):
 
         elif self.model_var_type == 'fixedsmall':
             self.logvar = np.log(np.maximum(posterior_variance, 1e-20))
+        
+        self.classifier = None
 
 
         #newly added
         #self.add_var = self.args.add_var
        # self.add_var_on = self.args.add_var_on
 
-    def train_classifier(self):
-        data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
-        #data_root = "/home/summertony717/data/celeba_hq"
-        self.model = create_classifier().to("cuda")
-        # if torch.cuda.device_count() > 1:
-        #     model = nn.DataParallel(model)
-        #model.to("cuda")
-        #self.model = model
-        print("Classifier created")
+    def train_classifier(self, rank=0, multi_proc=False, world_size=1, save_as="checkpoint/attr_classifier.pt"):
+        # data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
+        data_root = "/home/summertony717/data/celeba_hq"
+        
+        # multi-process setup
+        self.classifier_device = 'cuda'
+        if multi_proc:
+            dist_setup(rank, world_size)
+            self.classifier_device = rank
+
+        model = create_classifier(feature_num=3).to(self.classifier_device)
+        self.classifier = model
+        if multi_proc:
+            self.classifier = DDP(self.classifier, device_ids=[rank])
+
+        print(f"Classifier created on gpu {rank}")
         train_dataset, val_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, self.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
+
         loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=self.args.bs_train,
-                                    num_workers=self.config.data.num_workers)
+                                    num_workers=self.config.data.num_workers, multi_proc=multi_proc,
+                                    rank=rank, world_size=world_size)
         self.train_loader = loader_dic["train"]
         self.test_loader = loader_dic["test"]
 
-        opt = torch.optim.SGD(self.model.parameters(), lr=0.001)
-        #opt = torch.optim.Adam(self.model.parameters(), lr=1se-4)
-        criterion = torch.nn.BCELoss()
+        opt = torch.optim.SGD(self.classifier.parameters(), lr=0.001)
+        #opt = torch.optim.Adam(self.classifier.parameters(), lr=1se-4)
+        criterion = torch.nn.BCEWithLogitsLoss()
 
-        self.model.train()
-        loss_ls = []
+        self.classifier.train()
         acc_ls = {}
+
+        a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
+
         for epoch in range(10):
-            print(f"Epoch {epoch}")
+            # print(f"Epoch {epoch}")
             # train
             cnt = 0
-            with tqdm(total=len(self.train_loader), ncols=80) as pbar:
-            #pbar = tqdm(self.train_loader, ncols=80)
-            #pbar = self.train_loader
+            with tqdm(total=len(self.train_loader), ncols=80, position=rank) as pbar:
             #pdb.set_trace()
                 for index, (img, attrs) in enumerate(self.train_loader):
-                    # print(step, flush=True)
                     #pdb.set_trace()
                     N = img.shape[0]
                     cnt += N
                     #pdb.set_trace()
-                    label = (attrs[1].reshape(N, 1).float().to("cuda") + 1) / 2     # reshape and normalize
-                    x0 = img.to("cuda")
-                    # e = torch.randn_like(x0)
-                    # a = (1 - self.betas).cumprod(dim=0)
-                    # t0 = random.randint(1, 100)
-                    # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-                    # ts = (torch.ones(N) * t0).to("cuda")
+                    label = (attrs[:,:3].float().to(self.classifier_device) + 1) / 2     # normalize to [0, 1]
+                    x0 = img.to(self.classifier_device)
+                    e = torch.randn_like(x0)
+                    t0 = random.randint(1, 100)
+                    x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    ts = (torch.ones(N) * t0).to(self.classifier_device)
 
                     # testing the code without the randomness first
-                    x = x0
-                    ts = (torch.ones(N) * 0).to("cuda")
+                    # x = x0
+                    # ts = (torch.ones(N) * 0).to(self.classifier_device)
 
                     #pdb.set_trace()
+                    opt.zero_grad()
+                    output = self.classifier(x, timesteps=ts)
 
-                    logits = F.sigmoid(self.model(x, timesteps=ts))
-
-                    loss = criterion(logits, label)
-                    # loss_ls.append(loss.detach().cpu())
-                    pbar.set_description(f"Epoch {epoch}, Loss: {loss.item():.2f}")
+                    loss = criterion(output, label)
+                    pbar.set_description(f"GPU {rank} Epoch {epoch}, Loss: {loss.item():.2f}")
                     pbar.update(1)
                     loss.backward()
                     opt.step()
-                    opt.zero_grad()
                 #pdb.set_trace()
-                #torch.cuda.empty_cache()
-                #if step % 1000 == 0 and step != 0:  # every 100 samples
-            self.model.eval()
-            print("Evaluating...")
-            acc, val_loss = self.eval_classifier(self.test_loader)
-            print(f"Epoch {epoch}: validation loss = {val_loss}; acc = {acc}")
-            acc_ls[epoch] = acc
-            self.model.train()
-        print(acc_ls)
 
-            # eval
-            # log_probs = F.log_softmax(logits, dim=-1)
-            # selected = log_probs[range(len(logits)), y.view(-1)]
-            # correct = (log_probs.argmax(dim=1).cpu().numpy() == y.cpu().numpy()).sum()
+            if rank == 0:
+                self.classifier.eval()
+                print("Evaluating...")
+                acc, val_loss = self.eval_classifier(self.test_loader)
+                print(f"GPU {rank} Epoch {epoch}: validation loss = {val_loss}; acc = {acc}")
+                acc_ls[epoch] = acc
+                self.classifier.train()      
+                
+            dist.barrier()      # let other threads wait for the validation to finish
+
+        if rank == 0:
+            print(acc_ls)
+            self.save_classifier(save_as)
+
+        if multi_proc:
+            dist_cleanup()
 
     def eval_classifier(self, dataset_loader):
-        corrects = 0.0
+        corrects = 0
         loss_ls = []
+        loss_fn = torch.nn.BCEWithLogitsLoss()
+        a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
         with torch.no_grad():
-            for step, (img, attrs) in enumerate(dataset_loader):
-                # print("eval step", step, flush=True)
-                N = img.shape[0]
-                label_cpu = (attrs[1].reshape(len(attrs[1]), 1).float() + 1) / 2
-                label = label_cpu.to("cuda")     # reshape and normalize
-                x0 = img.to("cuda")
-                # e = torch.randn_like(x0)
-                # a = (1 - self.betas).cumprod(dim=0)
-                # t0 = random.randint(1, 100)
-                # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-                # ts = (torch.ones(N) * t0).to("cuda")
+            with tqdm(total=len(dataset_loader), ncols=80) as pbar:
+                for step, (img, attrs) in enumerate(dataset_loader):
+                    # print("eval step", step, flush=True)
+                    N = img.shape[0]
+                    label_cpu = (attrs.float() + 1) / 2
+                    label = label_cpu.to(self.classifier_device)
+                    x0 = img.to(self.classifier_device)
+                    e = torch.randn_like(x0)
+                    t0 = random.randint(1, 100)
+                    x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    ts = (torch.ones(N) * t0).to(self.classifier_device)
 
-                # testing the code without the randomness first
-                x = x0
-                ts = (torch.ones(N) * 0).to("cuda")
+                    # testing the code without the randomness first
+                    # x = x0
+                    # ts = (torch.ones(N) * 0).to(self.classifier_device)
 
-                logits = F.sigmoid(self.model(x, timesteps=ts))
-                y_pred_tag = torch.round(logits).detach().cpu()
+                    output = self.classifier(x, timesteps=ts)
+                    logits = F.sigmoid(output)
+                    y_pred_tag = torch.round(logits).detach().cpu()
 
-                correct_results_sum = (y_pred_tag == label_cpu).sum().float()
-                corrects += correct_results_sum
-                #pdb.set_trace()
-                loss = F.binary_cross_entropy(logits, label, reduction="mean").detach().cpu()
-                loss_ls.append(loss)
+                    correct_results_sum = (y_pred_tag == label_cpu).sum(dim=0).float()
+                    corrects += correct_results_sum
+                    #pdb.set_trace()
+                    loss = loss_fn(output, label).detach().cpu()
+                    loss_ls.append(loss)
+                    pbar.set_description(f"Validation: {loss.item():.2f}")
+                    pbar.update(1)
         #pdb.set_trace()
-        acc = corrects.item()/len(dataset_loader)
+        acc = corrects/len(dataset_loader)
         acc = acc * 100
         return acc, np.mean(loss_ls)
 
-
+    def save_classifier(self, path):
+        torch.save(self.classifier.state_dict(), path)
 
 
     def generate_ddpm(self, xt, sigma):
