@@ -60,7 +60,7 @@ def create_classifier(
 device = 'cuda'
 
 model_path = os.path.join("pretrained/celeba_hq.ckpt")
-classifier_path = os.path.join("gender_classifier_sgd_best.pt")
+classifier_path = os.path.join("glass_classifier_sgd_best.pt")
 
 classifier = create_classifier()
 classifier.load_state_dict(torch.load(classifier_path))
@@ -87,7 +87,7 @@ args_dic = {
     'image_folder': exp_dir,
     'add_var': bool(add_var),
     'add_var_on': add_var_on,
-    'classifier_scale': 4
+    'classifier_scale': 2
     }
 args = dict2namespace(args_dic)
 

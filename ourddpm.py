@@ -316,7 +316,7 @@ class OurDDPM(object):
                     # added intermediate step vis
                     #if i % 100 == 0:
                         #trajs.append(x.detach().cpu().numpy())
-                tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+            tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                                      f'ngen{self.args.n_step}_{id}_guided.png'))
 
             #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
