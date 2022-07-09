@@ -110,14 +110,30 @@ def denoising_step(xt, t, t_next, *,
             with torch.enable_grad():
                 x_in = xt.detach().requires_grad_(True)
                 logits = classifier(x_in, t)
-                log_probs = torch.log(logits)
+                log_probs = logits
+                #log_probs = torch.log(logits)
                 gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
+        # if classifier is not None:
+        #     with torch.enable_grad():
+        #         x_in = xt.detach().requires_grad_(True)
+        #         logits1 = classifier[0](x_in, t)
+        #         logits2 = classifier[1](x_in, t)
+        #         log_probs1 = logits1
+        #         log_probs2 = logits2
+        #         #log_probs = torch.log(logits)
+        #         gradient1 = torch.autograd.grad(log_probs1.sum(), x_in)[0] * classifier_scale
+        #         gradient2 = torch.autograd.grad(log_probs2.sum(), x_in)[0] * classifier_scale
+
+        ##    if t.item() < 200:
+         #   pdb.set_trace()
             new_mean = mean.float() + var * gradient.float()
+            #new_mean = new_mean.float() + var * gradient2.float()
             #pdb.set_trace()
             mean = new_mean
 
 
         if add_var and int(t.item()) in add_var_on:
+            torch.manual_seed(t.item())
             noise = torch.randn_like(xt)
             mask = 1 - (t == 0).float()
             mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))

@@ -246,7 +246,7 @@ class OurDDPM(object):
         return acc, np.mean(loss_ls)
 
 
-    def guided_generate_ddpm(self, xt, sigma, classifier, id):
+    def guided_generate_ddpm(self, xt, sigma, classifier, scale):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -310,14 +310,14 @@ class OurDDPM(object):
                                         add_var = self.add_var,
                                         add_var_on = sigma,
                                         classifier = classifier,
-                                        classifier_scale = self.args.classifier_scale,
+                                        classifier_scale = scale,
                                         variance = self.variance)
                     progress_bar.update(1)
                     # added intermediate step vis
                     #if i % 100 == 0:
                         #trajs.append(x.detach().cpu().numpy())
-            tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
-                                                                     f'ngen{self.args.n_step}_{id}_guided.png'))
+            #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+            return (x + 1) * 0.5                                      #                 f'ngen{self.args.n_step}_{id}_guided.png'))
 
             #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
 

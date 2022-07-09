@@ -69,12 +69,12 @@ model_path = os.path.join("pretrained/celeba_hq.ckpt")
 
 
 
-exp_dir = f"runs/attrs_fixed_scale120"
+exp_dir = f"runs/attrs_glass_gender"
 os.makedirs(exp_dir, exist_ok=True)
 
 n_step =  999#@param {type: "integer"}
 sampling = "ddpm" #@param ["ddpm", "ddim"]
-fixed_xt = True #@param {type: "boolean"}
+fixed_xt = False #@param {type: "boolean"}
 add_var = True #@param {type: "boolean"}
 add_var_on = "0-999" #@param {type: "string"}
 vis_gen =  False #@param {type: "boolean"}
@@ -114,32 +114,34 @@ runner = OurDDPM(args, config, device=device)
 
 device = torch.device("cuda")
 if bool(fixed_xt):
-    torch.manual_seed(10)
+    torch.manual_seed(0)
     xt = torch.randn((1,3,256,256),device=device)
 else:
     xt = torch.randn((1,3,256,256),device=device)
 config.device = device
 
-for attr in ["glass", "gender", "young"]:
+classifier_glass = create_classifier()
+classifier_gender = create_classifier()
+classifier_path1 = os.path.join(f"glass_classifier_sgd_best.pt")
+classifier_glass.load_state_dict(torch.load(classifier_path1))
+classifier_path2 = os.path.join(f"gender_classifier_sgd_best.pt")
+classifier_gender.load_state_dict(torch.load(classifier_path2))
+classifier = [classifier_glass.cuda().eval(), classifier_gender.cuda().eval()]
 
-    classifier = create_classifier()
-    classifier_path = os.path.join(f"{attr}_classifier_sgd_best.pt")
-    classifier.load_state_dict(torch.load(classifier_path))
+img_list = []
 
-    for scale in [-120, -100, -70, -40, -20, 0, 20, 40, 70, 100, 120]:
-    #for scale in [0]:
 
-        if attr == "glass" and scale < 0:
-            continue
+for scale in [20, 50, 70, 100]:
+    for i in range(4):
         img_list = []
-        #for i in range(4):
-        print(f"Generate {attr} scale {scale}")
-        img = runner.guided_generate_ddpm(xt,var_scheduler, classifier, scale)
-        img = img[0].permute(1,2,0).detach().cpu().numpy()
+        for i in range(4):
+            print(f"Generate scale {scale} sample {i}")
+            img = runner.guided_generate_ddpm(xt,var_scheduler, classifier, scale)
+            img = img[0].permute(1,2,0).detach().cpu().numpy()
 
-        img_list.append(img)
+            img_list.append(img)
         concat_img = cv2.hconcat(img_list) * 255
         #pdb.set_trace()
-        img_name = f"{attr}_{scale:03d}.png"
+        img_name = f"glass_gender_{scale:03d}.png"
         img_path = os.path.join(args.image_folder, img_name)
         cv2.imwrite(img_path, cv2.cvtColor(concat_img, cv2.COLOR_RGB2BGR))
