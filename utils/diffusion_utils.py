@@ -36,7 +36,8 @@ def denoising_step(xt, t, t_next, *,
                    add_var_on = None,
                    classifier = None,
                    classifier_scale = None,
-                   variance = None
+                   variance = None,
+                   zt = None
                    ):
 
     # Compute noise and variance
@@ -109,16 +110,19 @@ def denoising_step(xt, t, t_next, *,
         if classifier is not None:
             with torch.enable_grad():
                 x_in = xt.detach().requires_grad_(True)
-                logits = classifier(x_in, t)
-                log_probs = torch.log(logits)
+                # logits = F.sigmoid(classifier(x_in, t)[:, 1])
+                logits = classifier(x_in, t)[:, 1]
+                # log_probs = torch.log(logits)
+                log_probs = logits
                 gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
+            # print(gradient)
             new_mean = mean.float() + var * gradient.float()
             #pdb.set_trace()
             mean = new_mean
 
 
         if add_var and int(t.item()) in add_var_on:
-            noise = torch.randn_like(xt)
+            noise = torch.randn_like(xt) if zt == None else zt
             mask = 1 - (t == 0).float()
             mask = mask.reshape((xt.shape[0],) + (1,) * (len(xt.shape) - 1))
             xt_next = mean + mask * torch.exp(0.5 * logvar) * noise
@@ -230,7 +234,6 @@ def denoising_step_return_noise(xt, t, t_next, *,
         return xt_next, noise
 
     return xt_next, 0
-
 
 
 def denoising_with_traj(xt, t, t_next, *,

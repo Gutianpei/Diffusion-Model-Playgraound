@@ -106,6 +106,7 @@ class OurDDPM(object):
 
 
         self.classifier = None
+        self.diffusion_model = None
 
 
 
@@ -150,7 +151,7 @@ class OurDDPM(object):
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
 
-        for epoch in range(10):
+        for epoch in range(20):
             # print(f"Epoch {epoch}")
 
             # train
@@ -245,8 +246,31 @@ class OurDDPM(object):
         acc = acc * 100
         return acc, np.mean(loss_ls)
 
+    def load_ddpm(self):
+        if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
+            model_i = DDPM(self.config)
 
-    def guided_generate_ddpm(self, xt, sigma, classifier, id):
+            ckpt = torch.load(self.args.model_path)
+            self.learn_sigma = False
+        elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
+            model_i = i_DDPM(self.config.data.dataset)
+            if self.args.model_path:
+                ckpt = torch.load(self.args.model_path)
+            else:
+                ckpt = torch.load(MODEL_PATHS[self.config.data.dataset])
+            self.learn_sigma = True
+        else:
+            print('Not implemented dataset')
+            raise ValueError
+        model_i.load_state_dict(ckpt)
+        model_i.to(self.device)
+        model_i = torch.nn.DataParallel(model_i)
+        model_i.eval()
+        self.diffusion_model = model_i
+        print(f"{self.args.model_path} is loaded.")
+
+
+    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -256,26 +280,8 @@ class OurDDPM(object):
         classifier = classifier.cuda()
         classifier.eval()
         # ----------- Models -----------#
-        if self.config.data.dataset in ["CelebA_HQ", "LSUN"]:
-            model_i = DDPM(self.config)
-
-            ckpt = torch.load(self.args.model_path)
-            learn_sigma = False
-        elif self.config.data.dataset in ["FFHQ", "AFHQ", "IMAGENET"]:
-            model_i = i_DDPM(self.config.data.dataset)
-            if self.args.model_path:
-                ckpt = torch.load(self.args.model_path)
-            else:
-                ckpt = torch.load(MODEL_PATHS[self.config.data.dataset])
-            learn_sigma = True
-        else:
-            print('Not implemented dataset')
-            raise ValueError
-        model_i.load_state_dict(ckpt)
-        model_i.to(self.device)
-        model_i = torch.nn.DataParallel(model_i)
-        model_i.eval()
-        print(f"{self.args.model_path} is loaded.")
+        if self.diffusion_model == None:
+            self.load_ddpm()
 
         with torch.no_grad():
             # ----------- Generative Process -----------#
@@ -286,45 +292,58 @@ class OurDDPM(object):
             print('Uniform skip type')
 
             seq_test_next = [-1] + list(seq_test[:-1])
-
-
-            # e = torch.randn_like(x0)
-            # a = (1 - self.betas).cumprod(dim=0)
-            # x = x0 * a[self.args.t_0 - 1].sqrt() + e * (1.0 - a[self.args.t_0 - 1]).sqrt()
             x = xt
 
             with tqdm(total=len(seq_test), desc="Generative process") as progress_bar:
-                for i, j in zip(reversed(seq_test), reversed(seq_test_next)):
+                for w, (i, j) in enumerate(zip(reversed(seq_test), reversed(seq_test_next))):
                     t = (torch.ones(n) * i).to(self.device)
                     t_next = (torch.ones(n) * j).to(self.device)
 
-                    x = denoising_step(x, t=t, t_next=t_next, models=model_i,
+                    x = denoising_step(x, t=t, t_next=t_next, models=self.diffusion_model,
                                         logvars=self.logvar,
                                         sampling_type=self.args.sample_type,
                                         b=self.betas,
                                         eta=self.args.eta,
-                                        learn_sigma=learn_sigma,
+                                        learn_sigma=self.learn_sigma,
                                         ratio=1,
                                         hybrid=self.args.hybrid_noise,
                                         hybrid_config=HYBRID_CONFIG,
                                         add_var = self.add_var,
                                         add_var_on = sigma,
                                         classifier = classifier,
-                                        classifier_scale = self.args.classifier_scale,
-                                        variance = self.variance)
+                                        # classifier_scale = self.args.classifier_scale,
+                                        classifier_scale = classifier_scale,
+                                        variance = self.variance,
+                                        zt = noise_traj[w])
                     progress_bar.update(1)
                     # added intermediate step vis
                     #if i % 100 == 0:
                         #trajs.append(x.detach().cpu().numpy())
             tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
                                                                      f'ngen{self.args.n_step}_{id}_guided.png'))
-
-            #tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder,
+            return x.detach().cpu()
 
 
     def save_classifier(self, path):
         torch.save(self.classifier.state_dict(), path)
 
+    def load_classifier(self, path):
+        from collections import OrderedDict
+        
+        # original saved file with nn.DistributedDataParallel
+        state_dict = torch.load(path)
+        
+        # create new OrderedDict that does not contain `module.`
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            name = k[7:] # remove `module.`
+            new_state_dict[name] = v
+
+        # load params
+        self.classifier = create_classifier(feature_num=3).to(self.device)
+        self.classifier.load_state_dict(new_state_dict)
+        self.classifier_device = self.device
+        self.classifier.eval()
 
 
     def generate_ddpm(self, xt, sigma):
