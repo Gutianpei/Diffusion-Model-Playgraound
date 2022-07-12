@@ -37,7 +37,8 @@ def denoising_step(xt, t, t_next, *,
                    classifier = None,
                    classifier_scale = None,
                    variance = None,
-                   zt = None
+                   zt = None,
+                   attr = 0
                    ):
 
     # Compute noise and variance
@@ -110,10 +111,12 @@ def denoising_step(xt, t, t_next, *,
         if classifier is not None:
             with torch.enable_grad():
                 x_in = xt.detach().requires_grad_(True)
-                # logits = F.sigmoid(classifier(x_in, t)[:, 1])
-                logits = classifier(x_in, t)[:, 1]
-                # log_probs = torch.log(logits)
-                log_probs = logits
+                output = classifier(x_in, t)
+                assert output.shape[1] > attr, "attribute not valid"
+                logits = F.sigmoid(output[:, attr])
+                # logits = classifier(x_in, t)[:, attr]
+                log_probs = torch.log(logits)
+                # log_probs = logits
                 gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
             # print(gradient)
             new_mean = mean.float() + var * gradient.float()

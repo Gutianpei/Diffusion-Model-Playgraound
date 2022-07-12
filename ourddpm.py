@@ -114,7 +114,7 @@ class OurDDPM(object):
         self.add_var = self.args.add_var
         self.add_var_on = self.args.add_var_on
 
-    def train_classifier(self, rank=0, multi_proc=False, world_size=1, save_as="checkpoint/attr_classifier.pt"):
+    def train_classifier(self, rank=0, multi_proc=False, world_size=1, save_as="checkpoint/attr_classifier.pt", feature_num=4):
         # data_root = "/home/guangyi.chen/workspace/gutianpei/diffusion/DMP_data/data/celeba_hq"
         data_root = "/home/summertony717/data/celeba_hq"
 
@@ -124,8 +124,10 @@ class OurDDPM(object):
             dist_setup(rank, world_size)
             self.classifier_device = rank
 
-        model = create_classifier(feature_num=3).to(self.classifier_device)
-        self.classifier = model
+        if self.classifier == None:
+            self.classifier = create_classifier(feature_num=4)
+        self.classifier = self.classifier.to(self.classifier_device)
+        
         if multi_proc:
             self.classifier = DDP(self.classifier, device_ids=[rank])
 
@@ -151,7 +153,7 @@ class OurDDPM(object):
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
 
-        for epoch in range(20):
+        for epoch in range(30, 40):
             # print(f"Epoch {epoch}")
 
             # train
@@ -159,12 +161,13 @@ class OurDDPM(object):
             with tqdm(total=len(self.train_loader), ncols=80, position=rank) as pbar:
             #pdb.set_trace()
                 for index, (img, attrs) in enumerate(self.train_loader):
+                    opt.zero_grad()
                     #pdb.set_trace()
                     N = img.shape[0]
                     cnt += N
                     #pdb.set_trace()
 
-                    label = (attrs[:,:3].float().to(self.classifier_device) + 1) / 2     # normalize to [0, 1]
+                    label = (attrs.float().to(self.classifier_device) + 1) / 2     # normalize to [0, 1]
                     x0 = img.to(self.classifier_device)
                     e = torch.randn_like(x0)
                     t0 = random.randint(1, 100)
@@ -177,7 +180,6 @@ class OurDDPM(object):
 
 
                     #pdb.set_trace()
-                    opt.zero_grad()
                     output = self.classifier(x, timesteps=ts)
 
                     loss = criterion(output, label)
@@ -196,11 +198,15 @@ class OurDDPM(object):
                 acc_ls[epoch] = acc
                 self.classifier.train()
 
-            dist.barrier()      # let other threads wait for the validation to finish
+            if rank == 0 and epoch % 10 == 9:
+                print('saving checkpoint...')
+                self.save_classifier(f"{save_as}_{epoch+1}.pt")
+            
+            dist.barrier()
+
 
         if rank == 0:
             print(acc_ls)
-            self.save_classifier(save_as)
 
         if multi_proc:
             dist_cleanup()
@@ -215,7 +221,6 @@ class OurDDPM(object):
 
             with tqdm(total=len(dataset_loader), ncols=80) as pbar:
                 for step, (img, attrs) in enumerate(dataset_loader):
-                    # print("eval step", step, flush=True)
                     N = img.shape[0]
                     label_cpu = (attrs.float() + 1) / 2
                     label = label_cpu.to(self.classifier_device)
@@ -270,7 +275,7 @@ class OurDDPM(object):
         print(f"{self.args.model_path} is loaded.")
 
 
-    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None):
+    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None, attr=0):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -314,7 +319,8 @@ class OurDDPM(object):
                                         # classifier_scale = self.args.classifier_scale,
                                         classifier_scale = classifier_scale,
                                         variance = self.variance,
-                                        zt = noise_traj[w])
+                                        zt = noise_traj[w],
+                                        attr = attr)
                     progress_bar.update(1)
                     # added intermediate step vis
                     #if i % 100 == 0:
@@ -327,7 +333,7 @@ class OurDDPM(object):
     def save_classifier(self, path):
         torch.save(self.classifier.state_dict(), path)
 
-    def load_classifier(self, path):
+    def load_classifier(self, path, feature_num):
         from collections import OrderedDict
         
         # original saved file with nn.DistributedDataParallel
@@ -340,7 +346,7 @@ class OurDDPM(object):
             new_state_dict[name] = v
 
         # load params
-        self.classifier = create_classifier(feature_num=3).to(self.device)
+        self.classifier = create_classifier(feature_num=feature_num).to(self.device)
         self.classifier.load_state_dict(new_state_dict)
         self.classifier_device = self.device
         self.classifier.eval()

@@ -29,8 +29,9 @@ class MultiResolutionDataset(Dataset):
         self.files = sorted(os.listdir(path))
         self.length = len(self.files)
         if attr_path:
-            #print(attr_path)
             self.attr_df = pd.read_csv(attr_path)
+            df_index = [int(e.split(".")[0]) - 1 for e in self.files]
+            self.attr_df = self.attr_df.iloc[df_index]
             #self.length = len(self.attr_df)
 
 
@@ -53,8 +54,9 @@ class MultiResolutionDataset(Dataset):
         img = Image.open(os.path.join(self.data_path, self.files[index])).resize((self.resolution, self.resolution))
         img = self.transform(img)
         df_index = int(self.files[index].split(".")[0]) - 1
-        attr = self.attr_df.iloc[df_index]
-        attrs = torch.tensor([attr["Young"], attr["Male"], attr["Eyeglasses"]])
+        attr = self.attr_df.iloc[index]
+        attrs = torch.tensor([attr["Heavy_Makeup"], attr["Smiling"], attr["Eyeglasses"], attr["Male"]])
+        # print(attr["image_id"], self.files[index])
         assert attr["image_id"] == self.files[index]
 
         #pdb.set_trace()

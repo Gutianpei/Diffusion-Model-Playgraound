@@ -4,24 +4,28 @@ os.makedirs("precomputed", exist_ok=True)
 os.makedirs("pretrained", exist_ok=True)
 os.makedirs("runs", exist_ok=True)
 os.makedirs("runs/guided", exist_ok=True)
-
-
 sys.path.append("./")
+
+
 from ourddpm import OurDDPM
+from utils.image_utils import fuse, normalize
 from main import dict2namespace
 import argparse
 import yaml
 import warnings
 warnings.filterwarnings(action='ignore')
+from PIL import Image
+import cv2
 
 
 import torch
 import pickle
 import torchvision.utils as tvu
+import torch.nn.functional as F
 
 parser = argparse.ArgumentParser(description='.')
-parser.add_argument('scale', metavar='N', type=int, nargs=1,
-                    help='gradient scale')
+parser.add_argument('img_index', metavar='N', type=int, nargs=1,
+                    help='index of the image')
 args = parser.parse_args()
 
 device = 'cuda'
@@ -30,7 +34,7 @@ model_path = os.path.join("pretrained/celeba_hq.ckpt")
 exp_dir = f"runs/guided"
 os.makedirs(exp_dir, exist_ok=True)
 
-scale = args.scale[0]
+img_index = args.img_index[0]
 n_step =  999#@param {type: "integer"}
 sampling = "ddpm" #@param ["ddpm", "ddim"]
 fixed_xt = True #@param {type: "boolean"}
@@ -74,13 +78,27 @@ with open("runs/interpolation/data_1.obj","rb") as f:
 device = torch.device("cuda")
 config.device = device
 runner = OurDDPM(args, config, device=device)
-runner.load_classifier("checkpoint/attr_classifier_noisy1.pt")
+runner.load_classifier("checkpoint/attr_classifier_4_attrs_40.pt", 4)
+
+ATTR = 2
+
 res_list = []
+classifier_score = []
 
-for i, j in enumerate([1, 5, 10, -1, -5, -10]):
-    xt = data_list[1]["xt"]
-    noise_traj = torch.tensor(data_list[1]["noise_traj"]).cuda()
-    img = runner.guided_generate_ddpm(xt, var_scheduler, runner.classifier, 1, classifier_scale=scale*j, noise_traj=noise_traj)
-
-    tvu.save_image((img + 1) * 0.5, os.path.join(exp_dir, f'guided_scale_no_sig_no_log_{str(scale*j).zfill(5)}.png'))
+# for i, scale in enumerate([-200, -100, 0, 100, 200]):
+for i, scale in enumerate([0, 100, 200, 300, 400]):
+# for i, scale in enumerate([0]):
+    xt = data_list[img_index]["xt"]
+    noise_traj = torch.tensor(data_list[img_index]["noise_traj"]).cuda()
+    img = runner.guided_generate_ddpm(xt, var_scheduler, runner.classifier, 1, classifier_scale=scale, noise_traj=noise_traj, attr=ATTR)
+    res_list.append(img)
+    t = (torch.ones(1) * 0).cuda()
+    classifier_score.append(F.sigmoid(runner.classifier(img.cuda(), t)[:, ATTR])[0].item())
     torch.cuda.empty_cache()
+
+res = fuse(res_list)
+cv2.imwrite(os.path.join(exp_dir, f'guided_person_glasses_{img_index}.png'), res)
+# res = Image.fromarray(res)
+# res.save(os.path.join(exp_dir, f'guided_person_{img_index}.png'))
+# tvu.save_image(res, os.path.join(exp_dir, f'guided_person_{img_index}.png'))
+print(classifier_score)
