@@ -120,6 +120,7 @@ def denoising_step(xt, t, t_next, *,
                 gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
             # print(gradient)
             new_mean = mean.float() + var * gradient.float()
+            #new_mean = new_mean.float() + var * gradient2.float()
             #pdb.set_trace()
             mean = new_mean
 
