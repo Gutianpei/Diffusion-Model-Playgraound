@@ -152,7 +152,7 @@ class OurDDPM(object):
         best_acc = 0
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
-        for epoch in range(30, 40):
+        for epoch in range(0, 40):
             # print(f"Epoch {epoch}")
 
             # train

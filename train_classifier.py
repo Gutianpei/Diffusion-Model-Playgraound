@@ -16,7 +16,6 @@ import torch.multiprocessing as mp
 
 warnings.filterwarnings(action='ignore')
 
-
 def main():
     device = 'cuda'
 
@@ -34,7 +33,7 @@ def main():
     config = dict2namespace(config_dic)
 
     runner = OurDDPM(args, config, device=device)
-    runner.load_classifier("checkpoint/attr_classifier_4_attrs_30.pt", 4)
+    # runner.load_classifier("checkpoint/attr_classifier_4_attrs_30.pt", 4)
 
     GPU_CNT = torch.cuda.device_count()
     SAVE_PATH = "checkpoint/attr_classifier_4_attrs"
@@ -46,4 +45,5 @@ def main():
         runner.train_classifier()
 
 if __name__ == "__main__":
+    os.makedirs("checkpoint", exist_ok=True)
     main()

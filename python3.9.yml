@@ -137,6 +137,6 @@ dependencies:
   - zlib=1.2.12=h7f8727e_2
   - zstd=1.5.2=ha4553b6_0
   - pip:
-    - numpy==1.23.0
+    - numpy==1.22.4
     - opencv-python==4.6.0.66
 prefix: /home/summertony717/anaconda3/envs/python3.9
