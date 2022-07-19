@@ -21,13 +21,13 @@ def get_dataset(dataset_type, dataset_paths, config, label = None, target_class_
     return train_dataset, test_dataset
 
 
-def get_dataloader(train_dataset, test_dataset, bs_train=1, num_workers=0, multi_proc=False, rank=0, world_size=1):
+def get_dataloader(train_dataset, test_dataset, bs_train=1, num_workers=0, multi_proc=False, rank=0, world_size=1, shuffle=False):
     if not multi_proc:
         train_loader = DataLoader(
             train_dataset,
             batch_size=bs_train,
             drop_last=True,
-            shuffle=True,
+            shuffle=shuffle,
             sampler=None,
             num_workers=num_workers,
             pin_memory=True,

@@ -152,7 +152,6 @@ class OurDDPM(object):
         best_acc = 0
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
-
         for epoch in range(30, 40):
             # print(f"Epoch {epoch}")
 
@@ -170,8 +169,11 @@ class OurDDPM(object):
                     label = (attrs.float().to(self.classifier_device) + 1) / 2     # normalize to [0, 1]
                     x0 = img.to(self.classifier_device)
                     e = torch.randn_like(x0)
-                    t0 = random.randint(1, 100)
-                    x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    t0 = random.randint(0, 1000)
+                    if t0 == 0:
+                        x = x0
+                    else:
+                        x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
                     ts = (torch.ones(N) * t0).to(self.classifier_device)
 
                     # testing the code without the randomness first
@@ -212,7 +214,7 @@ class OurDDPM(object):
             dist_cleanup()
 
 
-    def eval_classifier(self, dataset_loader):
+    def eval_classifier(self, dataset_loader, t0=None):
         corrects = 0
         loss_ls = []
         loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -226,8 +228,11 @@ class OurDDPM(object):
                     label = label_cpu.to(self.classifier_device)
                     x0 = img.to(self.classifier_device)
                     e = torch.randn_like(x0)
-                    t0 = random.randint(1, 100)
-                    x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
+                    t0 = random.randint(0, 1000)
+                    if t0 == 0:
+                        x = x0
+                    else:
+                        x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
                     ts = (torch.ones(N) * t0).to(self.classifier_device)
 
                     # testing the code without the randomness first
@@ -318,6 +323,7 @@ class OurDDPM(object):
                                         classifier = classifier,
                                         # classifier_scale = self.args.classifier_scale,
                                         classifier_scale = classifier_scale,
+                                        guidance = (True if i in self.args.guidance_scheduler else False),
                                         variance = self.variance,
                                         zt = noise_traj[w],
                                         attr = attr)

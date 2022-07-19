@@ -36,6 +36,7 @@ def denoising_step(xt, t, t_next, *,
                    add_var_on = None,
                    classifier = None,
                    classifier_scale = None,
+                   guidance = False,
                    variance = None,
                    zt = None,
                    attr = 0
@@ -108,7 +109,7 @@ def denoising_step(xt, t, t_next, *,
         #add_var: variance sigma_t*z is added during the sampling process
 
         # classifier guided genetation
-        if classifier is not None:
+        if (classifier is not None) and guidance:
             with torch.enable_grad():
                 x_in = xt.detach().requires_grad_(True)
                 output = classifier(x_in, t)
