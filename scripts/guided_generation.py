@@ -81,37 +81,36 @@ config = dict2namespace(config_dic)
 
 with open("runs/interpolation/data_1.obj","rb") as f:
     data_list = pickle.load(f)
-
+# with open("test_mask.pickle", "rb") as f:
+#     guidance_mask = torch.tensor(pickle.load(f)).cuda()
+# guidance_mask = torch.tensor([[1] * 256 for _ in range(256)]).cuda()
 
 device = torch.device("cuda")
 config.device = device
 runner = OurDDPM(args, config, device=device)
-runner.load_classifier("checkpoint/attr_classifier_4_attrs_40.pt", 4)
+runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", 4)
 
-ATTR = 1
+ATTR = 0
 
 res_list = []
 classifier_score = []
 
 # for i, scale in enumerate([-200, -100, 0, 100, 200]):
-for i, scale in enumerate([0, 100, 200, 300, 400]):
-# for i, scale in enumerate([0]):
-# for i, guidance_start in enumerate([0, 200, 400, 600, 800]):
+for i, scale in enumerate([-20, -10, 0]):
+# for i, scale in enumerate([10]):
+# for i, guidance in enumerate(["0-999", "500-999", "0-499", "0-249", "250-499", "500-749", "750-999"]):
 
-    g_sch = get_scheduler(f"0-999")
+    g_sch = get_scheduler("0-999")
     runner.args.guidance_scheduler = g_sch
 
     xt = data_list[img_index]["xt"]
     noise_traj = torch.tensor(data_list[img_index]["noise_traj"]).cuda()
-    img = runner.guided_generate_ddpm(xt, var_scheduler, runner.classifier, 1, classifier_scale=scale, noise_traj=noise_traj, attr=ATTR)
+    img = runner.guided_generate_ddpm(xt, var_scheduler, runner.classifier, 1, classifier_scale=scale, noise_traj=noise_traj, attr=ATTR, guidance_mask=None)
     res_list.append(img)
-    t = (torch.ones(1) * 0).cuda()
+    t = torch.zeros(1).cuda()
     classifier_score.append(F.sigmoid(runner.classifier(img.cuda(), t)[:, ATTR])[0].item())
     torch.cuda.empty_cache()
 
 res = fuse(res_list)
-cv2.imwrite(os.path.join(exp_dir, f'guided_smile_scale{scale}_{img_index}.png'), res)
-# res = Image.fromarray(res)
-# res.save(os.path.join(exp_dir, f'guided_person_{img_index}.png'))
-# tvu.save_image(res, os.path.join(exp_dir, f'guided_person_{img_index}.png'))
+cv2.imwrite(os.path.join(exp_dir, f'guided_makeup_{-20}_{img_index}.png'), res)
 print(classifier_score)

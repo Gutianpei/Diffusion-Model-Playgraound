@@ -23,6 +23,7 @@ import torch
 import pickle
 import torchvision.utils as tvu
 import torch.nn.functional as F
+import numpy as np
 
 # # parser = argparse.ArgumentParser(description='.')
 # # parser.add_argument('img_index', metavar='N', type=int, nargs=1,
@@ -42,7 +43,7 @@ def get_scheduler(s):
 
 model_path = os.path.join("pretrained/celeba_hq.ckpt")
 
-exp_dir = f"runs/guided"
+exp_dir = f"runs/classifier_test"
 os.makedirs(exp_dir, exist_ok=True)
 
 # img_index = args.img_index[0]
@@ -81,31 +82,67 @@ device = torch.device("cuda")
 
 config.device = device
 runner = OurDDPM(args, config, device=device)
-runner.load_classifier("checkpoint/attr_classifier_4_attrs_40.pt", feature_num=4)
+runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", feature_num=4)
 
 data_root = "/home/summertony717/data/celeba_hq"
 train_dataset, val_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, runner.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
-loader_dic = get_dataloader(train_dataset, test_dataset, bs_train=runner.args.bs_train,
-                                    num_workers=runner.config.data.num_workers, multi_proc=False,
-                                    rank=0, world_size=1, shuffle=False)
-test_loader = loader_dic["test"]
+
+def test_loader(dataset, i):
+    img, _ = np.array(dataset[i])
+    ts = torch.zeros(1).cuda()
+    img = torch.tensor(img).reshape(1, *img.shape)
+    return img, ts
 
 res = []
-with torch.no_grad():
-        for i, (img, attrs) in tqdm(enumerate(test_loader)):
-            N = img.shape[0]
-            label_cpu = (attrs.float() + 1) / 2
-            label = label_cpu.cuda()
-            x0 = img.cuda()
-            e = torch.randn_like(x0)
-            # x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
-            ts = (torch.ones(N) * 1).cuda()
+# with torch.no_grad():
+#     for i in tqdm(range(len(test_dataset))):
+#         img, ts = test_loader(test_dataset, i)
+#         output = runner.classifier(img.cuda(), timesteps=ts)
+#         logits = F.sigmoid(output)
+#         res.append((i, logits[0]))
 
-            output = runner.classifier(x0, timesteps=ts)
-            logits = F.sigmoid(output)
-            y_pred_tag = torch.round(logits).detach().cpu()
 
-            res.append((i, logits[0]))
+# with open("temp.pkl", "wb") as f:
+#     pickle.dump(res, f)
+
+with open("temp.pkl", "rb") as f:
+    res = pickle.load(f)
+
+
+cnt = 0
+for i in [3]:
+# for i in range(4):
+    val_id = [(b[i].item(), a) for a, b in res]
+    val_id.sort()
+
+    ids = []
+    v = []
+    p = 0
+    # for j in range(500):
+    for j in range(500):
+        # if val_id[j][0] < 0.5:
+        #     cnt += (test_dataset[val_id[j][1]][1][i].item() == -1)
+        # else:
+        #     cnt += (test_dataset[val_id[j][1]][1][i].item() == 1)
+        # if val_id[j][0] >= p:
+        #     ids.append(val_id[j][1])
+        #     v.append(val_id[j][0])
+        #     p += 0.05
+    #     if p >= 0.5: break
+
+
+    # # get the images
+    # label = [test_dataset[id][1][i].item() for id in ids]
+    # temp = [(np.array(test_dataset[e][0]).transpose(1, 2, 0) + 1) / 2 * 255 for e in ids]
+    # temp = cv2.hconcat(temp)
+    # temp = cv2.cvtColor(temp, cv2.COLOR_RGB2BGR)
+    # cv2.imwrite(os.path.join(exp_dir, f"attr_{i}<50.png"), temp)
+    # print(label)
+    # print(v)
+    # print(ids)
+    
+print(cnt)
+
 
 
 

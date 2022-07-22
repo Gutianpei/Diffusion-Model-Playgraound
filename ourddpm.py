@@ -152,7 +152,7 @@ class OurDDPM(object):
         best_acc = 0
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
-        for epoch in range(0, 40):
+        for epoch in range(100, 150):
             # print(f"Epoch {epoch}")
 
             # train
@@ -228,7 +228,8 @@ class OurDDPM(object):
                     label = label_cpu.to(self.classifier_device)
                     x0 = img.to(self.classifier_device)
                     e = torch.randn_like(x0)
-                    t0 = random.randint(0, 1000)
+                    if t0 == None:
+                        t0 = random.randint(0, 1000)
                     if t0 == 0:
                         x = x0
                     else:
@@ -280,7 +281,7 @@ class OurDDPM(object):
         print(f"{self.args.model_path} is loaded.")
 
 
-    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None, attr=0):
+    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None, attr=0, guidance_mask=None):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -326,7 +327,8 @@ class OurDDPM(object):
                                         guidance = (True if i in self.args.guidance_scheduler else False),
                                         variance = self.variance,
                                         zt = noise_traj[w],
-                                        attr = attr)
+                                        attr = attr,
+                                        guidance_mask = guidance_mask)
                     progress_bar.update(1)
                     # added intermediate step vis
                     #if i % 100 == 0:
