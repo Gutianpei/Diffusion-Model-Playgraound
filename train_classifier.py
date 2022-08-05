@@ -21,7 +21,7 @@ def main():
 
     args_dic = {
         'config': 'celeba.yml',
-        'bs_train': 16,
+        'bs_train': 8,
         'device': device,
         'add_var': True,
         'add_var_on': "0-999",
@@ -33,10 +33,10 @@ def main():
     config = dict2namespace(config_dic)
 
     runner = OurDDPM(args, config, device=device)
-    runner.load_classifier("checkpoint/attr_classifier_4_attrs_100.pt", 4)
+    # runner.load_classifier("checkpoint/attr_classifier_4_attrs_100.pt", 4)
 
     GPU_CNT = torch.cuda.device_count()
-    SAVE_PATH = "checkpoint/attr_classifier_4_attrs"
+    SAVE_PATH = "checkpoint/naive_classifier_4_attrs"
 
     print("Start training")
     if GPU_CNT > 1:

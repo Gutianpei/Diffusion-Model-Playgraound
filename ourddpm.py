@@ -152,7 +152,7 @@ class OurDDPM(object):
         best_acc = 0
 
         a = (1 - self.betas).cumprod(dim=0).to(self.classifier_device)
-        for epoch in range(100, 150):
+        for epoch in range(0, 30):
             # print(f"Epoch {epoch}")
 
             # train
@@ -170,15 +170,16 @@ class OurDDPM(object):
                     x0 = img.to(self.classifier_device)
                     e = torch.randn_like(x0)
                     t0 = random.randint(0, 1000)
+
+
+                    # t0 = 0 # naive classifier
+
+
                     if t0 == 0:
                         x = x0
                     else:
                         x = x0 * a[t0 - 1].sqrt() + e * (1.0 - a[t0 - 1]).sqrt()
                     ts = (torch.ones(N) * t0).to(self.classifier_device)
-
-                    # testing the code without the randomness first
-                    # x = x0
-                    # ts = (torch.ones(N) * 0).to(self.classifier_device)
 
 
                     #pdb.set_trace()
@@ -281,15 +282,20 @@ class OurDDPM(object):
         print(f"{self.args.model_path} is loaded.")
 
 
-    def guided_generate_ddpm(self, xt, sigma, classifier, id, classifier_scale=0, noise_traj=None, attr=0, guidance_mask=None):
+    # classifier_scale: classifier guidance scale
+    # noise_traj: the random noise added at each step 
+    # attr: which attr to change
+    # guidance_mask: where on the image to add guidance
+    # target_logits: an array specifying the logit values we want for each attribute
+    def guided_generate_ddpm(self, xt, sigma, guidance_model, id, guidance_scale=0, noise_traj=None, attr_num=4, attr=0, guidance_mask=None, target_logits=[], output_dict=None, guidance_mode="classifier", clip_target_text=None, clip_model=None):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
         trajs = []
 
-        # ----------- Classifier --------#
-        classifier = classifier.cuda()
-        classifier.eval()
+        # ----------- guidance_model --------#
+        guidance_model = guidance_model.cuda()
+        guidance_model.eval()
         # ----------- Models -----------#
         if self.diffusion_model == None:
             self.load_ddpm()
@@ -309,7 +315,6 @@ class OurDDPM(object):
                 for w, (i, j) in enumerate(zip(reversed(seq_test), reversed(seq_test_next))):
                     t = (torch.ones(n) * i).to(self.device)
                     t_next = (torch.ones(n) * j).to(self.device)
-
                     x = denoising_step(x, t=t, t_next=t_next, models=self.diffusion_model,
                                         logvars=self.logvar,
                                         sampling_type=self.args.sample_type,
@@ -321,14 +326,20 @@ class OurDDPM(object):
                                         hybrid_config=HYBRID_CONFIG,
                                         add_var = self.add_var,
                                         add_var_on = sigma,
-                                        classifier = classifier,
-                                        # classifier_scale = self.args.classifier_scale,
-                                        classifier_scale = classifier_scale,
+                                        guidance_model = guidance_model,
+                                        guidance_scale = guidance_scale,
                                         guidance = (True if i in self.args.guidance_scheduler else False),
                                         variance = self.variance,
                                         zt = noise_traj[w],
+                                        attr_num = 4,
                                         attr = attr,
-                                        guidance_mask = guidance_mask)
+                                        guidance_mask = guidance_mask,
+                                        target_logits = target_logits,
+                                        output_dict = output_dict, 
+                                        guidance_mode = guidance_mode,
+                                        clip_target_text = clip_target_text,
+                                        clip_model = clip_model,
+                                        )
                     progress_bar.update(1)
                     # added intermediate step vis
                     #if i % 100 == 0:

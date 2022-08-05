@@ -2,6 +2,9 @@ import numpy as np
 import torch
 import pdb
 import torch.nn.functional as F
+import clip
+import torchvision.transforms as tfs
+import pdb
 
 def get_beta_schedule(*, beta_start, beta_end, num_diffusion_timesteps):
     betas = np.linspace(beta_start, beta_end,
@@ -21,6 +24,9 @@ def extract(a, t, x_shape):
     return out
 
 #newly added argument: add_var
+# target_logits: an array specifying the logit values we want for each attribute.
+# when this is specified, the scale should be positive
+# example: [1, 0.4, 0.6, 0.2]. we want to push attr 0 to 1, attr 1 to 0.4, attr 2 to ...
 def denoising_step(xt, t, t_next, *,
                    models,
                    logvars,
@@ -34,13 +40,19 @@ def denoising_step(xt, t, t_next, *,
                    out_x0_t=False,
                    add_var= False,
                    add_var_on = None,
-                   classifier = None,
-                   classifier_scale = None,
+                   guidance_model = None,
+                   guidance_scale = None,
                    guidance = False,
                    variance = None,
                    zt = None,
+                   attr_num = 4,
                    attr = 0,
-                   guidance_mask = None
+                   guidance_mask = None,
+                   target_logits = [],
+                   output_dict = None,
+                   guidance_mode = "classifier",
+                   clip_target_text = None,
+                   clip_model = None
                    ):
 
     # Compute noise and variance
@@ -110,23 +122,50 @@ def denoising_step(xt, t, t_next, *,
         #add_var: variance sigma_t*z is added during the sampling process
 
         # classifier guided genetation
-        if (classifier is not None) and guidance:
+        if guidance_mode == "classifier" and (guidance_model is not None) and guidance and guidance_scale != 0:
             with torch.enable_grad():
-                x_in = xt.detach().requires_grad_(True)
-                output = classifier(x_in, t)
-                assert output.shape[1] > attr, "attribute not valid"
-                logits = F.sigmoid(output[:, attr])
-                # logits = classifier(x_in, t)[:, attr]
-                log_probs = torch.log(logits)
-                # log_probs = logits
-                gradient = torch.autograd.grad(log_probs.sum(), x_in)[0] * classifier_scale
-            # print(gradient)
+                # x_in = xt.detach().requires_grad_(True)
+                if len(target_logits) == 0:
+                    gradient = get_classifier_gradient(guidance_model, xt, t, attr, 1, output_dict)
+                else:
+                    gradients = []
+                    for i in range(attr_num):
+                        gradient = get_classifier_gradient(guidance_model, xt, t, i, target_logits[i], output_dict)
+                        gradients.append(gradient)
+                    gradient = torch.zeros_like(xt)
+                    for i, each in enumerate(gradients):
+                        # gradient = (gradient + each) if i in [0, 3] else gradient
+                        gradient = gradient + each
+
+                # gradient = gradient / torch.linalg.norm(gradient, dim=(2, 3)).reshape(-1, 3, 1, 1)
+                gradient = -gradient        # gradient descent here
+
+            gradient = gradient * guidance_scale
             if guidance_mask is not None:
                 gradient = gradient * guidance_mask
-            new_mean = mean.float() + var * gradient.float()
-            #new_mean = new_mean.float() + var * gradient2.float()
-            #pdb.set_trace()
-            mean = new_mean
+            mean = mean.float() + var * gradient.float()
+        
+        # clip guided generation
+        if guidance_mode == "clip" and (guidance_model is not None) and guidance and guidance_scale != 0:
+            assert clip_target_text is not None, "clip_target_text cannot be None"
+            assert clip_model is not None, "clip_model cannot be None"
+            with torch.enable_grad():
+                x_in = xt.detach().requires_grad_(True)
+                x_restored = guidance_model(x_in, t)
+                x_restored = clip_normalize(x_restored)
+                x_restored = clip_model.encode_image(x_restored)
+                x_restored = F.normalize(x_restored, dim=-1)
+                clip_target_text = F.normalize(clip_target_text, dim=-1)
+                dot_product = (x_restored @ clip_target_text.T).squeeze()
+                logit = dot_product
+                if output_dict is not None:
+                    output_dict['clip_logit'].append(logit.detach().cpu().item())
+                gradient = torch.autograd.grad(logit, x_in)[0]
+            gradient = gradient * guidance_scale
+            if guidance_mask is not None:
+                gradient = gradient * guidance_mask
+            mean = mean.float() + var * gradient.float()
+
 
 
         if add_var and int(t.item()) in add_var_on:
@@ -155,6 +194,27 @@ def denoising_step(xt, t, t_next, *,
     else:
         return xt_next
 
+def get_classifier_gradient(classifier, xt, t, attr, target_logit, output_dict=None):
+    x_in = xt.detach().requires_grad_(True)
+    output = classifier(x_in, t)
+    logits = F.sigmoid(output[:, attr])
+    if output_dict is not None:
+        output_dict[f"attr{attr}_logit"].append(logits.cpu().detach().item())
+    target_logit = max(target_logit, 1e-5)
+    target_logit = torch.tensor(target_logit).reshape(logits.shape).cuda()
+    log_probs = torch.log(target_logit) - torch.log(logits)
+    log_probs = torch.abs(log_probs)                        # L1
+    # log_probs = torch.sqrt(log_probs * log_probs)         # L2
+    gradient = torch.autograd.grad(log_probs, x_in)[0]
+    norm = torch.sqrt(torch.sum(torch.tensor(gradient * gradient))).cpu().detach().item()
+    if output_dict is not None:
+        output_dict[f"attr{attr}_gradient_norm"].append(norm)
+    return gradient
+
+def clip_normalize(img):
+    trans = tfs.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    crop = tfs.CenterCrop(224)
+    return trans(crop(img))
 
 def denoising_step_return_noise(xt, t, t_next, *,
                    models,

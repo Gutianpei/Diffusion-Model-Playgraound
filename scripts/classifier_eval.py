@@ -80,7 +80,8 @@ device = torch.device("cuda")
 
 config.device = device
 runner = OurDDPM(args, config, device=device)
-runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", feature_num=4)
+# runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", feature_num=4)
+runner.load_classifier("checkpoint/naive_classifier_4_attrs_30.pt", feature_num=4)
 
 data_root = "/home/summertony717/data/celeba_hq"
 train_dataset, val_dataset, test_dataset = get_dataset("CelebA_HQ", data_root, runner.config)#, label = "../DMP_data/list_attr_celeba.csv.zip")
@@ -92,7 +93,7 @@ test_loader = loader_dic["test"]
 res = []
 # for t in range(0, 1001, 10):
 for t in [0]:
-    acc, _ = runner.eval_classifier(test_loader, t0=t)
+    acc, _ = runner.eval_classifier(test_loader, t0=0)
     res.append((t, acc))
 
 print(res)
