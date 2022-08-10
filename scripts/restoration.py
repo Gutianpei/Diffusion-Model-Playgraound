@@ -38,6 +38,7 @@ args = parser.parse_args()
 device = 'cuda'
 model_path = os.path.join("pretrained/celeba_hq.ckpt")
 
+# exp_dir = f"runs/guided"
 exp_dir = f"runs/with_restoration"
 os.makedirs(exp_dir, exist_ok=True)
 ckpt_dir = f"checkpoint"
@@ -105,7 +106,7 @@ def draw_figure(arrs, title, path):
 
 
 # LOAD CLASSIFIER
-runner.load_classifier("checkpoint/naive_classifier_4_attrs_30.pt", 4)
+# runner.load_classifier("checkpoint/naive_classifier_4_attrs_30.pt", 4)
 # runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", 4)
 
 # LOAD RESTORATION NET
@@ -121,28 +122,28 @@ for k, v in ckpt.items():
 restoration.load_state_dict(new_state_dict)
 restoration.to(device)
 
-class Restore_Classify(nn.Module):
-    def __init__(self, restore, classifier):
-        super().__init__()
-        self.restore = restore
-        self.classifier = classifier
-        self.device = torch.device("cuda")
+# class Restore_Classify(nn.Module):
+#     def __init__(self, restore, classifier):
+#         super().__init__()
+#         self.restore = restore
+#         self.classifier = classifier
+#         self.device = torch.device("cuda")
 
-    def forward(self, x, t):
-        n = x.shape[0]
-        x = self.restore(x, t)
-        t = (torch.zeros(n)).to(self.device)
-        x = self.classifier(x, t)
-        return x
+#     def forward(self, x, t):
+#         n = x.shape[0]
+#         x = self.restore(x, t)
+#         t = (torch.zeros(n)).to(self.device)
+#         x = self.classifier(x, t)
+#         return x
 
-restore_classify = Restore_Classify(restoration, runner.classifier)
+# restore_classify = Restore_Classify(restoration, runner.classifier)
 
 # load CLIP model
 clip_model, preprocess = clip.load("ViT-B/32", device=device)
 
 # INPUT PARAMS
 ATTR = 3
-target_text = clip.tokenize(["a man with beard"]).to(device)
+target_text = clip.tokenize(["a woman with glasses"]).to(device)
 target_text = clip_model.encode_text(target_text)
 
 res_list = []
@@ -151,7 +152,7 @@ classifier_score = []
 # for i, scale in enumerate([-200, -100, 0, 100, 200]):
 # for i, scale in enumerate([-1.2, -0.9, -0.6, -0.3, 0]):
 # for i, scale in enumerate([0, 5, 10, 15, 20]):
-for i, scale in enumerate([10]):
+for i, scale in enumerate([0, 5, 10]):
 # for i, guidance in enumerate(["999-999", "750-999", "500-999", "250-999", "0-999"]):
 # for i, guidance in enumerate(["999-999", "0-249", "0-499", "0-749", "0-999"]):
 # for i, guidance in enumerate(["999-999", "0-599"]):
@@ -169,8 +170,8 @@ for i, scale in enumerate([10]):
     #     target_logits = [e for e in classifier_score[0]]
     #     target_logits[ATTR] = 0
 
-    output_dict = defaultdict(list)
-    # output_dict = None
+    # output_dict = defaultdict(list)
+    output_dict = None
     
     img = runner.guided_generate_ddpm(xt, 
                         var_scheduler, 
@@ -183,30 +184,32 @@ for i, scale in enumerate([10]):
                         guidance_mask = None, 
                         target_logits = target_logits,
                         output_dict = output_dict,
-                        clip_target_text = target_text,
-                        clip_model = clip_model,
-                        guidance_mode="clip"
+                        clip_target_text = None,
+                        clip_model = None,
+                        guidance_mode = "clip"
                         )
     res_list.append(img)
     t = torch.zeros(1).cuda()
-    classifier_score.append(F.sigmoid(runner.classifier(img.cuda(), t))[0].tolist())
+    # classifier_score.append(F.sigmoid(runner.classifier(img.cuda(), t))[0].tolist())
     torch.cuda.empty_cache()
 
-    logits = [output_dict['clip_logit']]
-    draw_figure(logits, "clip logit at different time steps", f"runs/plots/clip_logits_{img_index}_{scale}.png")
+    # logits = [output_dict['clip_logit']]
+    # draw_figure(logits, "clip logit at different time steps", f"runs/plots/clip_logits_{img_index}_{scale}.png")
+    # gradients = [output_dict['clip_gradient']]
+    # draw_figure(gradients, "clip gradient norm at different time steps", f"runs/plots/clip_gradients_{img_index}_{scale}.png")
 
     
 
 res = fuse(res_list)
-cv2.imwrite(os.path.join(exp_dir, f'clip_guided_{img_index}_1.png'), res)
+cv2.imwrite(os.path.join(exp_dir, f'clip_beard_{img_index}.png'), res)
 
-for i, e in enumerate(classifier_score):
-    print(e)
+# for i, e in enumerate(classifier_score):
+#     print(e)
 
-with open(os.path.join(exp_dir, f'clip_guided_{img_index}_1.log'), "w+") as f:
-    for i, e in enumerate(classifier_score):
-        f.write(str(e))
-        f.write("\n")
+# with open(os.path.join(exp_dir, f'clip_beard_{img_index}.log'), "w+") as f:
+#     for i, e in enumerate(classifier_score):
+#         f.write(str(e))
+#         f.write("\n")
 
 
 

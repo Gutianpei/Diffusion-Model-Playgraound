@@ -102,14 +102,14 @@ runner = OurDDPM(args, config, device=device)
 # runner.load_classifier("checkpoint/naive_classifier_4_attrs_30.pt", 4)
 runner.load_classifier("checkpoint/attr_classifier_4_attrs_150.pt", 4)
 
-ATTR = 0
+ATTR = 3
 
 res_list = []
 classifier_score = []
 
 # for i, scale in enumerate([-200, -100, 0, 100, 200]):
 # for i, scale in enumerate([-1.2, -0.9, -0.6, -0.3, 0]):
-for i, scale in enumerate([0, 5, 10, 15, 20]):
+for i, scale in enumerate([0, 5, 10]):
 # for i, scale in enumerate([-0]):
 # for i, guidance in enumerate(["999-999", "750-999", "500-999", "250-999", "0-999"]):
 # for i, guidance in enumerate(["999-999", "0-249", "0-499", "0-749", "0-999"]):
@@ -124,9 +124,9 @@ for i, scale in enumerate([0, 5, 10, 15, 20]):
     noise_traj = torch.tensor(data_list[img_index]["noise_traj"]).cuda()
     
     target_logits = []
-    if i != 0:
-        target_logits = [e for e in classifier_score[0]]
-        target_logits[ATTR] = 0
+    # if i != 0:
+    #     target_logits = [e for e in classifier_score[0]]
+    #     target_logits[ATTR] = 1
 
     # target_logits = [1, 1, 1, 1]
 

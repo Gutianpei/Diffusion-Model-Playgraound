@@ -154,8 +154,8 @@ def denoising_step(xt, t, t_next, *,
                 x_restored = guidance_model(x_in, t)
                 x_restored = clip_normalize(x_restored)
                 x_restored = clip_model.encode_image(x_restored)
-                x_restored = F.normalize(x_restored, dim=-1)
-                clip_target_text = F.normalize(clip_target_text, dim=-1)
+                x_restored = F.normalize(x_restored, dim=-1)                # (1, 512), unit row vector
+                clip_target_text = F.normalize(clip_target_text, dim=-1)    # (1, 512), unit row vector
                 dot_product = (x_restored @ clip_target_text.T).squeeze()
                 logit = dot_product
                 if output_dict is not None:
@@ -164,6 +164,9 @@ def denoising_step(xt, t, t_next, *,
             gradient = gradient * guidance_scale
             if guidance_mask is not None:
                 gradient = gradient * guidance_mask
+            if output_dict is not None:
+                gradient_norm = torch.sqrt(torch.sum(gradient * gradient))
+                output_dict['clip_gradient'].append(gradient_norm.detach().cpu().item())
             mean = mean.float() + var * gradient.float()
 
 
