@@ -23,7 +23,7 @@ from models.ddpm.diffusion import DDPM
 from models.improved_ddpm.script_util import i_DDPM
 from models.improved_ddpm.unet import EncoderUNetModel
 from utils.text_dic import SRC_TRG_TXT_DIC
-from utils.diffusion_utils import get_beta_schedule, denoising_step, denoising_step_return_noise, denoising_with_traj
+from utils.diffusion_utils import get_beta_schedule, denoising_step, denoising_step_return_noise, denoising_with_traj, extract
 from utils.dist_utils import dist_cleanup, dist_setup
 
 from datasets.data_utils import get_dataset, get_dataloader
@@ -91,21 +91,24 @@ class OurDDPM(object):
         self.betas = torch.from_numpy(betas).float().to(self.device)
         self.num_timesteps = betas.shape[0]
 
-        alphas = 1.0 - betas
-        alphas_cumprod = np.cumprod(alphas, axis=0)
-        alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
-        posterior_variance = betas * \
-                             (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        self.alphas = 1.0 - betas
+        self.alphas_cumprod = np.cumprod(self.alphas, axis=0)
+        self.sqrt_recip_alphas_cumprod = 1 / np.sqrt(self.alphas_cumprod)
+        self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
+        self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
+        self.posterior_variance = betas * \
+                             (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         if self.model_var_type == "fixedlarge":
-            self.logvar = np.log(np.append(posterior_variance[1], betas[1:]))
+            self.logvar = np.log(np.append(self.posterior_variance[1], betas[1:]))
 
         elif self.model_var_type == 'fixedsmall':
 
-            self.variance = np.maximum(posterior_variance, 1e-20)
+            self.variance = np.maximum(self.posterior_variance, 1e-20)
             self.logvar = np.log(self.variance)
 
 
         self.classifier = None
+        self.restoration_model = None
         self.diffusion_model = None
 
 
@@ -287,7 +290,7 @@ class OurDDPM(object):
     # attr: which attr to change
     # guidance_mask: where on the image to add guidance
     # target_logits: an array specifying the logit values we want for each attribute
-    def guided_generate_ddpm(self, xt, sigma, guidance_model, id, guidance_scale=0, noise_traj=None, attr_num=4, attr=0, guidance_mask=None, target_logits=[], output_dict=None, guidance_mode="classifier", clip_target_text=None, clip_model=None):
+    def guided_generate_ddpm(self, xt, sigma, guidance_model, id, guidance_scale=0, noise_traj=None, attr_num=4, attr=0, guidance_mask=None, target_logits=[], output_dict=None, guidance_mode="classifier", clip_target_text=None, clip_target_img=None, clip_model=None, CAM_mask = False, x_orig=None, lpips_model=None, out_x0_t=False):
         # ----------- random noise -----------#
         n = self.args.bs_test
         x0 = torch.randn((n, 3, self.config.data.image_size,self.config.data.image_size), device=self.config.device)
@@ -315,7 +318,7 @@ class OurDDPM(object):
                 for w, (i, j) in enumerate(zip(reversed(seq_test), reversed(seq_test_next))):
                     t = (torch.ones(n) * i).to(self.device)
                     t_next = (torch.ones(n) * j).to(self.device)
-                    x = denoising_step(x, t=t, t_next=t_next, models=self.diffusion_model,
+                    x = denoising_step(x, t=t, t_next=t_next, models=self,
                                         logvars=self.logvar,
                                         sampling_type=self.args.sample_type,
                                         b=self.betas,
@@ -338,14 +341,22 @@ class OurDDPM(object):
                                         output_dict = output_dict, 
                                         guidance_mode = guidance_mode,
                                         clip_target_text = clip_target_text,
+                                        clip_target_img = clip_target_img,
                                         clip_model = clip_model,
+                                        CAM_mask = CAM_mask,
+                                        x_orig=x_orig,
+                                        lpips_model = lpips_model,
+                                        out_x0_t = out_x0_t,
                                         )
+                    if out_x0_t:
+                        x, x0_t = x 
+
                     progress_bar.update(1)
                     # added intermediate step vis
-                    #if i % 100 == 0:
-                        #trajs.append(x.detach().cpu().numpy())
+                    if i % 100 == 0:
+                        trajs.append(x0_t.detach().cpu().numpy())
             # tvu.save_image((x + 1) * 0.5, os.path.join(self.args.image_folder, f'ngen{self.args.n_step}_{id}_guided.png'))
-            return x.detach().cpu()
+            return x.detach().cpu(), trajs
 
 
     def save_classifier(self, path):
@@ -444,6 +455,13 @@ class OurDDPM(object):
         return trajs    #                                                         f'ngen{self.args.n_step}_final.png'))
 
 
+    def predict_xstart_from_eps(self, x_t, t, eps):
+        assert x_t.shape == eps.shape
+        # print(extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t)
+        return (
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * eps
+        )
 
 
     def edit_one_image(self):

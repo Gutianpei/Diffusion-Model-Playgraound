@@ -22,6 +22,7 @@ import pickle
 import torchvision.utils as tvu
 import torch.nn.functional as F
 import clip
+import lpips
 
 # command line arguments
 parser = argparse.ArgumentParser(description='.')
@@ -31,7 +32,14 @@ parser.add_argument("-g", "--guidance_on", default=["0-999"], nargs="*", help='s
 parser.add_argument("-m", "--guidance_mask", type=str, default=None, help="location of the guidance mask")
 parser.add_argument("-c", "--guidance_model_checkpoint", type=str, default="checkpoint/attr_classifier_4_attrs_150.pt", help="location of the guidance model checkpoint")
 parser.add_argument("-r", "--restoration_model_checkpoint", type=str, default="checkpoint/epoch_180.pt", help="restoration checkpoint location")
-parser.add_argument("-t", "--guidance_type", type=str, choices=["clip", "classifier", "directional-clip-loss", "blended"], default="classifier", help="guidance type")
+parser.add_argument("-t", "--guidance_type", type=str, 
+    choices=["clip", 
+             "classifier", 
+             "directional-clip-loss", 
+             "blended", 
+             "restoration_blended", 
+             "restoration_lpips",
+             "restoration_classifier"], default="classifier", help="guidance type")
 parser.add_argument("-a", "--attribute", type=int, default=0, help="attribute to guide")
 parser.add_argument("-s", "--scale", default=[10], nargs="*", help="guidance scale(s)")
 parser.add_argument("-l", "--log", action='store_true', default=False, help="whether or not to store various data in output_dict")
@@ -41,9 +49,8 @@ parser.add_argument("-C", "--CAM", action='store_true', default=False, help="use
 input_args = parser.parse_args()
 print(input_args)
 
-
 now = datetime.now()
-current_time = now.strftime("%m-%d-%y-%H:%M")
+current_time = now.strftime("%m%d%H%M%S")
 
 # make folders
 os.makedirs("checkpoint", exist_ok=True)
@@ -121,6 +128,7 @@ runner = OurDDPM(args, config, device=device)
 runner.load_classifier(input_args.guidance_model_checkpoint, 4)
 if input_args.guidance_type == "classifier":
     guidance_model = runner.classifier
+    clip_model = None
 else:
     # load restoration network
     guidance_model = DDPM(config)
@@ -131,10 +139,33 @@ else:
         new_state_dict[name] = v
     guidance_model.load_state_dict(new_state_dict)
     guidance_model.to(device)
-    # load CLIP model
-    clip_model, preprocess = clip.load("RN101", device=device)
+    runner.restoration_model = guidance_model
 
-if input_args.guidance_type == "classifier":
+    if "restoration" in input_args.guidance_type:
+        class Temp(torch.nn.Module):
+            def __init__(self, a, b):
+                super().__init__()
+                self.restore = a
+                self.classify = b
+            def forward(self, x, t):
+                x = self.a(x, t)
+                x = self.b(x, torch.zeros_like(t).cuda())
+                return x
+
+        guidance_model = Temp(guidance_model, runner.classifier)
+        clip_model = None
+        if input_args.guidance_type == "restoration_classifier":
+            input_args.guidance_type = "classifier"
+    else:
+        # load CLIP model
+        clip_model, preprocess = clip.load("RN101", device=device)
+
+if "lpips" in input_args.guidance_type:
+    lpips_model = lpips.LPIPS(net='vgg').cuda()
+else:
+    lpips_model = None
+
+if "clip" not in input_args.guidance_type:
     clip_target_text = None
     clip_target_img = None
 else:
@@ -152,7 +183,15 @@ target_img_clip = None
 scales = [int(e) for e in input_args.scale]
 guidance_on  = input_args.guidance_on
 
+
+x_orig = None
 res_list = []
+
+# x_orig = torch.tensor((np.array(Image.open("runs/original/tony.jpg").resize((256,256))))).permute(2, 0, 1).cuda().float().unsqueeze(0)/255 * 2 - 1
+# guidance_mask = np.array(Image.open("runs/masks/glasses/tony.jpg"))
+# guidance_mask = torch.tensor(guidance_mask).float().cuda() / 255
+
+# res_list = [x_orig.cpu()]
 classifier_score = []
 
 for j, guidance in enumerate(guidance_on):
@@ -173,7 +212,7 @@ for j, guidance in enumerate(guidance_on):
             target_logits = [e for e in classifier_score[0]]
             target_logits[input_args.attribute] = 1
         
-        img = runner.guided_generate_ddpm(xt, 
+        img, traj = runner.guided_generate_ddpm(xt, 
                             var_scheduler, 
                             guidance_model, 
                             1, 
@@ -188,27 +227,36 @@ for j, guidance in enumerate(guidance_on):
                             clip_target_img = target_img_clip,
                             clip_model = clip_model,
                             guidance_mode = input_args.guidance_type,
-                            CAM_mask = input_args.CAM)
+                            CAM_mask = input_args.CAM,
+                            x_orig=x_orig,
+                            lpips_model=lpips_model,
+                            out_x0_t=True)
+
+        if i == 0 and ("blended" in input_args.guidance_type or "lpips" in input_args.guidance_type):
+            x_orig = img.cuda()
+
         res_list.append(img)
         t = torch.zeros(1).cuda()
         classifier_score.append(F.sigmoid(runner.classifier(img.cuda(), t))[0].tolist())
-        if scale == 0:
+        if scale == 0 and input_args.guidance_type == 'directional-clip-loss':
             original_img_clip = clip_model.encode_image(clip_normalize(img.cuda()))
             target_img_clip = original_img_clip + clip_direction
 
         torch.cuda.empty_cache()
 
-        logits = [output_dict["clip_logit"]]
-        draw_figure(logits, "logits at different time steps", f'runs/plots/{current_time}_{ATTRIBUTES[input_args.attribute]}_{input_args.img_index}_plot.png')
+        # logits = [output_dict["clip_logit"]]
+        # draw_figure(logits, "logits at different time steps", f'runs/plots/{current_time}_{ATTRIBUTES[input_args.attribute]}_{input_args.img_index}_plot.png')
         # norms = [output_dict["attr0_gradient_norm"], output_dict["attr1_gradient_norm"], output_dict["attr2_gradient_norm"], output_dict["attr3_gradient_norm"]]
         # draw_figure(norms, "gradient norms at different time steps", f"runs/plots/norms_{img_index}_{scale}.png")
-        
-
+            
 
 res = fuse(res_list)
 cv2.imwrite(os.path.join(exp_dir, f'{current_time}_{ATTRIBUTES[input_args.attribute]}_{input_args.img_index}.png'), res)
 for i, e in enumerate(classifier_score):
     print(e)
+
+res = fuse(traj)
+cv2.imwrite(os.path.join(exp_dir, f'{current_time}_{ATTRIBUTES[input_args.attribute]}_{input_args.img_index}_traj.png'), res)
 
 
 
